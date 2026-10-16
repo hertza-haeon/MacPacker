@@ -330,7 +330,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     private func showWelcomeWindowIfDue() {
-        guard welcomeScreenShownInVersion != Bundle.main.appVersionLong || Bundle.main.appVersionLong.contains("0.0.0-dev") else {
+        // local test build: once per version, as in a release, not at every start
+        guard welcomeScreenShownInVersion != Bundle.main.appVersionLong else {
             return
         }
         log.notice("Showing welcome window")

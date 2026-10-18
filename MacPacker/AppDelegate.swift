@@ -448,6 +448,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         self.archiveWindowManager?.openNewArchiveWindow()
     }
 
+    func openNewTab() {
+        self.archiveWindowManager?.openNewTab()
+    }
+
     func openCreateArchiveWindow() {
         self.archiveWindowManager?.openCreateArchiveWindow()
     }

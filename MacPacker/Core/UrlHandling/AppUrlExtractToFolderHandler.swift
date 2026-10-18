@@ -14,7 +14,8 @@ import tb
 private let log = tb.Logger(subsystem: "app.MacPacker", category: "url")
 
 /// Finder action "Extract to "<name>"": extracts each selected archive into a
-/// new folder named after it, then selects those folders in Finder.
+/// new folder named after it, next to it, then selects in Finder those in the
+/// window's own folder.
 class AppUrlExtractToFolderHandler: AppUrlHandler {
     private let catalog: ArchiveTypeCatalog
     private let engineSelector: ArchiveEngineSelectorProtocol
@@ -27,23 +28,27 @@ class AppUrlExtractToFolderHandler: AppUrlHandler {
     func handle(appUrl: AppUrl, archiveWindowManager: ArchiveWindowManager) async {
         log.debug("Extracting \(appUrl.files.count) archive(s) to folders in \(appUrl.target)")
 
-        // the selected archives share one folder: a single grant covers them all
-        guard await FolderAccessStore.shared.ensureAccess(forFolder: appUrl.target) else {
-            log.error("No access to \(appUrl.target.lastPathComponent) — cannot extract")
-            return
+        // Each folder goes next to its archive: in the window's folder, or in a
+        // folder expanded in it. One grant on the window's folder covers both.
+        for folder in Set(appUrl.files.map(appUrl.folder(of:))).sorted(by: { $0.path < $1.path }) {
+            guard await FolderAccessStore.shared.ensureAccess(forFolder: folder) else {
+                log.error("No access to \(folder.lastPathComponent) — cannot extract")
+                return
+            }
         }
         var folders: [URL] = []
         for fileUrl in appUrl.files {
-            // The folder we create in the target is named after the
-            // archive, so the name comes from `fileUrl`.
+            // The folder we create next to the archive is named after it,
+            // so the name comes from `fileUrl`.
+            let folder = appUrl.folder(of: fileUrl)
             var folderName = ArchiveTypeDetector(catalog: self.catalog).getNameWithoutExtension(for: fileUrl)
             // A folder of that name is there already: kept as it is, with the
             // archive in a second one beside it, when Settings say keep both.
             // Otherwise extracted into, as before.
             if NameClash.current() == .keepBoth {
-                folderName = NameClash.freeName(for: folderName, in: appUrl.target)
+                folderName = NameClash.freeName(for: folderName, in: folder)
             }
-            let folderUrl = appUrl.target.appendingPathComponent(folderName)
+            let folderUrl = folder.appendingPathComponent(folderName)
             // The folder is not created here. The extraction makes a
             // destination that is not there yet, and takes it back with a run
             // that does not finish — created up front, it stayed behind, empty,
@@ -60,8 +65,10 @@ class AppUrlExtractToFolderHandler: AppUrlHandler {
                 folders.append(folderUrl)
             }
         }
-        if !folders.isEmpty {
-            NSWorkspace.shared.activateFileViewerSelecting(folders)
+        // only where it takes no second Finder window
+        let selected = appUrl.itemsToSelect(folders)
+        if !selected.isEmpty {
+            NSWorkspace.shared.activateFileViewerSelecting(selected)
         }
     }
 }

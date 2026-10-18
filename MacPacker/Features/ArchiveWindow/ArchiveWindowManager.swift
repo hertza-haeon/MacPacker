@@ -69,6 +69,10 @@ class ArchiveWindowManager {
         archiveState.nameClash = { NameClash.current() }
         // Opening a plain (non-archive) entry hands it to the system editor.
         archiveState.openFileExternally = { NSWorkspace.shared.open($0) }
+        // Its extractions show at its foot while it is open, not in the
+        // progress window.
+        let windowID = UUID()
+        archiveState.windowID = windowID
         // One window per archive, for what the window opens itself too: the start
         // page and a drop on an empty window.
         archiveState.focusWindowHolding = { [weak self] in self?.focusWindow(holding: $0) != nil }
@@ -93,8 +97,10 @@ class ArchiveWindowManager {
         windowControllers.append(archiveWindowController)
         archiveWindowController.willCloseHandler = { [weak self] in
             self?.windowControllers.removeAll { $0 === archiveWindowController }
+            archiveState.progressCenter.windowClosed(windowID)
         }
         archiveWindowController.showWindow(nil)
+        archiveState.progressCenter.windowOpened(windowID)
         return archiveState
     }
 

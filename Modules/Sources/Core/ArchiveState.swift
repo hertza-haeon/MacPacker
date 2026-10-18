@@ -1120,6 +1120,20 @@ extension ArchiveState {
         return file
     }
 
+    /// The archive's files on disk: its own file or, when it is split into
+    /// volumes, every volume of it (see `ArchiveFiles`). Empty for an archive
+    /// that has never been saved.
+    ///
+    /// Reads the archive's folder, inside whatever grant covers it.
+    public func filesOnDisk() -> [URL] {
+        guard let url else { return [] }
+        let folder = url.deletingLastPathComponent()
+        let siblings = Sandbox.accessSync(url: folder) {
+            (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        }
+        return ArchiveFiles.files(of: url, among: siblings, splits: catalog.allSplits())
+    }
+
     public func open(url: URL) {
         // A second open supersedes the first. Without cancelling, the earlier
         // task keeps running against the same state.
@@ -1656,11 +1670,15 @@ extension ArchiveState {
     ///     container folder named after the archive. The caller owns that
     ///     decision: a menu entry that already names the folder it creates
     ///     passes `false`, everything else passes `Keys.smartExtractionEnabled()`.
+    /// - Returns: the run, whose value is how it ended — for a caller that has
+    ///   to hold something (access to the destination) until it ends, or acts
+    ///   on what it extracted.
+    @discardableResult
     public func extract(
         items: [ArchiveItem],
         to destination: URL,
         smart: Bool
-    ) {
+    ) -> Task<ExtractionJob.State, Never> {
         updateStatus(.processing)
 
         let tempDirs = ExtractionTempDirectories()
@@ -1683,7 +1701,8 @@ extension ArchiveState {
         )
 
         let cancelFlag = ExtractionCancelFlag()
-        let task = Task {
+        let task = Task { () -> ExtractionJob.State in
+            let outcome: ExtractionJob.State
             do {
                 let batches = try batchResolver.resolveBatches(for: items, in: entries, using: effectiveEngineSelector)
                 // "Extract selected" with the whole archive selected behaves
@@ -1730,38 +1749,43 @@ extension ArchiveState {
                     throw error
                 }
                 tempDirectories.append(contentsOf: result.tempDirs)
-                progressCenter.finish(jobId, .done)
+                outcome = .done
             } catch is CancellationError {
                 // partial temp output of the aborted extraction must not
                 // linger — register it for the regular cache cleanup
                 tempDirectories.append(contentsOf: tempDirs.all)
-                progressCenter.finish(jobId, .cancelled)
+                outcome = .cancelled
             } catch ArchiveError.passwordCancelled {
                 tempDirectories.append(contentsOf: tempDirs.all)
-                let outcome = passwordCancelledOutcome()
+                outcome = passwordCancelledOutcome()
                 if case .failed(let message) = outcome { self.error = message }
-                progressCenter.finish(jobId, outcome)
             } catch {
                 extractLog.error(error)
                 self.error = error.localizedDescription
                 self.isBusy = false
                 tempDirectories.append(contentsOf: tempDirs.all)
-                progressCenter.finish(jobId, .failed(error.localizedDescription))
+                outcome = .failed(error.localizedDescription)
             }
+            progressCenter.finish(jobId, outcome)
             
             updateStatus(.done)
+            return outcome
         }
         progressCenter.setOnCancel(jobId) {
             cancelFlag.cancel()
             task.cancel()
         }
+        return task
     }
     
     /// Extracts the whole archive to the given destination.
     /// - Parameters:
     ///   - destination: destination folder
     ///   - smart: see `extract(items:to:smart:)`
-    public func extract(to destination: URL, smart: Bool) {
+    /// - Returns: the run, whose value is how it ended — what a caller that
+    ///   acts on a finished extraction waits for.
+    @discardableResult
+    public func extract(to destination: URL, smart: Bool) -> Task<ExtractionJob.State, Never> {
         isBusy = true
         updateStatus(.processing)
 
@@ -1775,7 +1799,8 @@ extension ArchiveState {
 
         let cancelFlag = ExtractionCancelFlag()
         let clash = nameClash()
-        let task = Task {
+        let task = Task { () -> ExtractionJob.State in
+            let outcome: ExtractionJob.State
             do {
                 guard let root else {
                     throw ArchiveError.extractionFailed("No root item set")
@@ -1848,26 +1873,28 @@ extension ArchiveState {
                     try? await runBlocking { @Sendable in staging.discard() }
                     throw error
                 }
-                progressCenter.finish(jobId, .done)
+                outcome = .done
             } catch is CancellationError {
-                progressCenter.finish(jobId, .cancelled)
+                outcome = .cancelled
             } catch ArchiveError.passwordCancelled {
-                let outcome = passwordCancelledOutcome()
+                outcome = passwordCancelledOutcome()
                 if case .failed(let message) = outcome { self.error = message }
-                progressCenter.finish(jobId, outcome)
             } catch {
                 extractLog.error(error)
                 self.error = error.localizedDescription
-                progressCenter.finish(jobId, .failed(error.localizedDescription))
+                outcome = .failed(error.localizedDescription)
             }
+            progressCenter.finish(jobId, outcome)
 
             self.isBusy = false
             updateStatus(.done)
+            return outcome
         }
         progressCenter.setOnCancel(jobId) {
             cancelFlag.cancel()
             task.cancel()
         }
+        return task
     }
     
     /// Updates the quick look preview URL. The previewer we're using is the default systems

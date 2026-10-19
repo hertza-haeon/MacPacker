@@ -22,13 +22,16 @@ struct ArchiveFormatSettings: Identifiable {
     /// The file types of this format's extensions, which the default-app
     /// checkbox hands to this app or back (`DefaultArchiveApp`).
     var types: [UTType] = []
+    /// The app that opens this format when it isn't this one.
+    var opensWith: String? = nil
 }
 
 struct FormatSettingsView: View {
     @EnvironmentObject private var appState: AppState
     
     @State private var rows: [ArchiveFormatSettings] = []
-    @State private var selection: ArchiveFormatSettings.ID?
+    /// Narrows the list to the formats whose name or extensions contain it.
+    @State private var search = ""
     
     @State private var showEngineInfo: Bool = false
     /// Mirrors the store so the toggle and the picker enablement update together.
@@ -69,7 +72,8 @@ struct FormatSettingsView: View {
                 editors: editors,
                 selectedEngine: selectedEngine,
                 defaultOpen: DefaultArchiveApp.opensAll(types),
-                types: types
+                types: types,
+                opensWith: types.first.flatMap(DefaultArchiveApp.appName(opening:))
             )
             result.append(afs)
         }
@@ -145,116 +149,145 @@ struct FormatSettingsView: View {
         )
     }
 
+    private var shownRows: [ArchiveFormatSettings] {
+        let query = search.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return rows }
+        return rows.filter {
+            $0.name.localizedCaseInsensitiveContains(query) || $0.extensions.localizedCaseInsensitiveContains(query)
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: automaticBinding) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(.settingsAutomaticEngineSelection)
-                    Text(.settingsAutomaticEngineSelectionHint)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .toggleStyle(.switch)
-            .padding(.bottom, 4)
-
-            Divider()
-
-            HStack {
-                Text(.settingsDefaultStatusEngineSettings)
-                Spacer()
-                if isChangingDefaults {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                Button {
-                    makeDefaultForArchives()
-                } label: {
-                    Text(verbatim: "Set \(Bundle.main.displayName) as default")
-                }
-                .disabled(isChangingDefaults)
-                .help(Text(verbatim: "Opens every archive and compressed format with \(Bundle.main.displayName). Disk images, installers, programs and help files keep their apps; tick those below one by one."))
-            }
-
-            Table(rows, selection: $selection) {
-                TableColumn(String("")) {
-                    defaultToggle(identifier: $0.id, defaultOpen: $0.defaultOpen, types: $0.types)
-                }
-                .width(20)
-                TableColumn(.settingsFileFormat, value: \.name)
-                TableColumn(.settingsExtensions, value: \.extensions)
-                TableColumn(.settingsEngine) {
-                    supportedPicker(identifier: $0.id, selectedEngine: $0.selectedEngine,
-                                    supportedEngines: $0.engines, editors: $0.editors)
-                }
-            }
-            .tableStyle(.bordered)
-            
-            HStack {
-                Button {
-                    refreshFormatConfig()
-                } label: {
-                    Label(.commonRefresh, systemImage: "arrow.clockwise")
-                }
-                
-                Spacer()
-                
-                Button {
-                    showEngineInfo.toggle()
-                } label: {
-                    Label {
-                        Text(.settingsInfoOnEngines)
-                    } icon: {
-                        Image(systemName: "info.circle")
-                            .foregroundStyle(.orange)
+        Form {
+            Section {
+                SettingRow(title: Bundle.main.displayName,
+                           detail: "Opens \(rows.filter(\.defaultOpen).count) of \(rows.count) formats.") {
+                    HStack(spacing: 8) {
+                        if isChangingDefaults {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Button {
+                            makeDefaultForArchives()
+                        } label: {
+                            Text(verbatim: "Set \(Bundle.main.displayName) as default")
+                        }
+                        .disabled(isChangingDefaults)
+                        .help(Text(verbatim: "Opens every archive and compressed format with \(Bundle.main.displayName). Disk images, installers, programs and help files keep their apps; switch those on below one by one."))
                     }
-
                 }
-                .buttonStyle(.borderless)
-                .popover(isPresented: $showEngineInfo) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(.settingsEngineChoiceHint)
+            } header: {
+                Text(verbatim: "Default App")
+            }
 
-                        Divider()
+            Section {
+                SettingToggle(title: "Automatic engine selection",
+                              detail: "Picks an engine per archive, and tries another if the first can’t read it.",
+                              isOn: automaticBinding)
+            } header: {
+                HStack {
+                    Text(verbatim: "Engines")
+                    Spacer()
+                    Button {
+                        showEngineInfo.toggle()
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(Text(.settingsInfoOnEngines))
+                    .popover(isPresented: $showEngineInfo) { engineInfo }
+                }
+            }
 
-                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
-                            ForEach(ArchiveEngineType.allCases) { engine in
-                                GridRow {
-                                    Text(engine.rawValue)
-                                    Text(engine.libraryVersion)
-                                        .foregroundStyle(.secondary)
-                                }
+            Section {
+                TextField(text: $search, prompt: Text(verbatim: "Search formats")) {
+                    Text(verbatim: "Search")
+                }
+                .labelsHidden()
+
+                HStack(spacing: 8) {
+                    Text(verbatim: "Open").frame(width: Self.switchColumnWidth, alignment: .leading)
+                    Text(verbatim: "Format")
+                    Spacer()
+                    Text(verbatim: "Engine").frame(width: Self.engineColumnWidth, alignment: .leading)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                ForEach(shownRows) { row in
+                    HStack(spacing: 8) {
+                        defaultToggle(identifier: row.id, defaultOpen: row.defaultOpen, types: row.types)
+                            .frame(width: Self.switchColumnWidth, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(row.name)
+                            Text(row.defaultOpen || row.opensWith == nil
+                                 ? row.extensions
+                                 : "\(row.extensions) · opens with \(row.opensWith ?? "")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Group {
+                            if isAutomatic {
+                                Text(verbatim: "Automatic")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                supportedPicker(identifier: row.id, selectedEngine: row.selectedEngine,
+                                                supportedEngines: row.engines, editors: row.editors)
                             }
                         }
-                        .font(.footnote)
-
-                        Divider()
-
-                        Label {
-                            Text(.settingsEditsArchivesHint)
-                        } icon: {
-                            Image(systemName: "pencil")
-                        }
-                        .font(.footnote)
+                        .frame(width: Self.engineColumnWidth, alignment: .leading)
                     }
-                    .frame(width: 260)
-                    .padding()
                 }
+            } header: {
+                Text(verbatim: "All Formats")
             }
         }
-        .padding()
-        .frame(minHeight: 400)
+        .formStyle(.grouped)
         .onAppear {
             isAutomatic = appState.archiveEngineConfigStore.isAutomatic
-
-            if !rows.isEmpty {
-                return
-            }
-
+            refreshFormatConfig()
+        }
+        // a format given to another app in Finder's Get Info meanwhile
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshFormatConfig()
         }
     }
-    
+
+    private static let switchColumnWidth: CGFloat = 40
+    private static let engineColumnWidth: CGFloat = 170
+
+    /// What the engines are, their versions, and which of them edit archives.
+    private var engineInfo: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(.settingsEngineChoiceHint)
+
+            Divider()
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+                ForEach(ArchiveEngineType.allCases) { engine in
+                    GridRow {
+                        Text(engine.rawValue)
+                        Text(engine.libraryVersion)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .font(.footnote)
+
+            Divider()
+
+            Label {
+                Text(.settingsEditsArchivesHint)
+            } icon: {
+                Image(systemName: "pencil")
+            }
+            .font(.footnote)
+        }
+        .frame(width: 260)
+        .padding()
+    }
+
     @ViewBuilder
     func defaultToggle(identifier: String, defaultOpen: Bool, types: [UTType]) -> some View {
         let binding = Binding<Bool>(
@@ -268,8 +301,10 @@ struct FormatSettingsView: View {
         )
 
         Toggle(isOn: binding, label: { Text(verbatim: "") })
-            .frame(alignment: .center)
-            .help(Text(verbatim: "Ticked: \(Bundle.main.displayName) opens this format. Unticked: the app that opened it before does."))
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .labelsHidden()
+            .help(Text(verbatim: "On: \(Bundle.main.displayName) opens this format. Off: the app that opened it before does."))
             .disabled(isChangingDefaults || types.isEmpty)
     }
     

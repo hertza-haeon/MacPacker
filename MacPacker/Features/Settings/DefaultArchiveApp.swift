@@ -72,6 +72,13 @@ enum DefaultArchiveApp {
         return (typeCount, names)
     }
 
+    /// The name of the app that opens the type now, if it isn't this one.
+    static func appName(opening type: UTType) -> String? {
+        guard let app = NSWorkspace.shared.urlForApplication(toOpen: type),
+              Bundle(url: app)?.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
+        return app.deletingPathExtension().lastPathComponent
+    }
+
     /// Whether this app opens every one of the types.
     static func opensAll(_ types: [UTType]) -> Bool {
         !types.isEmpty && types.allSatisfy(opens)

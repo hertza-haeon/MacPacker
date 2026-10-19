@@ -9,197 +9,42 @@ import Core
 import Foundation
 import SwiftUI
 
+/// MacPacker Lab: the app's windows, its menu bar item and its history. The
+/// archive window and extraction have panes of their own.
 struct GeneralSettingsView: View {
-    @AppStorage(Keys.settingBreadcrumbPosition) var breadcrumbPosition: BreadcrumbPosition = .bottom
-    @AppStorage(Keys.showColumnCompressedSize) var showCompressedSize: Bool = true
-    @AppStorage(Keys.showColumnUncompressedSize) var showUncompressedSize: Bool = true
-    @AppStorage(Keys.showColumnModificationDate) var showModificationDate: Bool = true
-    @AppStorage(Keys.showColumnPosixPermissions) var showPermissions: Bool = false
-    @AppStorage(Keys.showParentRow) var showParentRow: Bool = false
-    @AppStorage(Keys.nameClash, store: .macPackerShared) var nameClash: NameClash = .keepBoth
     @AppStorage(Keys.quitOnLastWindowClosed) var quitOnLastWindowClosed: Bool = false
     @AppStorage(Keys.openArchivesInTabs) var openArchivesInTabs: Bool = true
     @AppStorage(Keys.showMenuBarItem) var showMenuBarItem: Bool = false
     @AppStorage(Keys.rememberRecentArchives) var rememberRecentArchives: Bool = true
-    @AppStorage(Keys.smartExtraction, store: .macPackerShared) var smartExtraction: Bool = true
-    @AppStorage(Keys.extractNextToArchive, store: .macPackerShared) var extractNextToArchive: Bool = false
-    @AppStorage(Keys.closeWindowAfterExtraction) var closeWindowAfterExtraction: Bool = false
-    @AppStorage(Keys.trashArchiveAfterExtraction) var trashArchiveAfterExtraction: Bool = false
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .top) {
-                Text(.settingsColumns)
-                    .frame(width: 200, alignment: .trailing)
-                
-                VStack(alignment: .leading) {
-                    Toggle(isOn: $showCompressedSize) {
-                        Text(.columnPackedSize)
-                    }
-                    Toggle(isOn: $showUncompressedSize) {
-                        Text(.columnSize)
-                    }
-                    Toggle(isOn: $showModificationDate) {
-                        Text(.columnDateModified)
-                    }
-                    Toggle(isOn: $showPermissions) {
-                        Text(.columnPermissions)
-                    }
-                }
-                .padding(.leading, 8)
-                .toggleStyle(.checkbox)
-                .frame(width: 240, alignment: .leading)
+        Form {
+            Section {
+                SettingToggle(title: "Open archives in tabs", isOn: $openArchivesInTabs)
+                SettingToggle(title: "Quit when the last window closes", isOn: $quitOnLastWindowClosed)
+            } header: {
+                Text(verbatim: "Windows")
             }
 
-            HStack(alignment: .top) {
-                Text(.settingsShowParentFolderEntry)
-                    .frame(width: 200, alignment: .trailing)
-
-                HStack {
-                    Toggle(isOn: $showParentRow) {}
-                }
-                .padding(.leading, 8)
-                .frame(width: 240, alignment: .leading)
+            Section {
+                SettingToggle(title: "Show in menu bar", isOn: $showMenuBarItem)
+            } header: {
+                Text(verbatim: "Menu Bar")
             }
 
-            Divider()
-            
-            HStack(alignment: .top) {
-                Text(.settingsBreadcrumbPosition)
-                    .frame(width: 200, alignment: .trailing)
-                
-                HStack {
-                    Picker(String(""), selection: $breadcrumbPosition) {
-                        ForEach(BreadcrumbPosition.allCases, id: \.self) { position in
-                            breadcrumbPositionLabel(position)
-                                .tag(position)
-                        }
-                    }
-                }
-                .frame(width: 240, alignment: .leading)
+            Section {
+                SettingToggle(title: "Remember recent archives",
+                              detail: "Turning this off clears the list.",
+                              isOn: $rememberRecentArchives)
+            } header: {
+                Text(verbatim: "History")
             }
-            
-            HStack(alignment: .top) {
-                Text(.settingsQuitOnLastWindowClosed)
-                    .frame(width: 200, alignment: .trailing)
-                
-                HStack {
-                    Toggle(isOn: $quitOnLastWindowClosed) {}
-                }
-                .padding(.leading, 8)
-                .frame(width: 240, alignment: .leading)
-            }
-
-            HStack(alignment: .top) {
-                Text(.settingsOpenArchivesInTabs)
-                    .frame(width: 200, alignment: .trailing)
-
-                HStack {
-                    Toggle(isOn: $openArchivesInTabs) {}
-                }
-                .padding(.leading, 8)
-                .frame(width: 240, alignment: .leading)
-            }
-            .help(Text(.settingsOpenArchivesInTabsHint))
-
-            HStack(alignment: .top) {
-                Text(.settingsShowInMenuBar)
-                    .frame(width: 200, alignment: .trailing)
-
-                HStack {
-                    Toggle(isOn: $showMenuBarItem) {}
-                }
-                .padding(.leading, 8)
-                .frame(width: 240, alignment: .leading)
-            }
-
-            HStack(alignment: .top) {
-                Text(.settingsRememberRecentArchives)
-                    .frame(width: 200, alignment: .trailing)
-
-                HStack {
-                    Toggle(isOn: $rememberRecentArchives) {}
-                }
-                .padding(.leading, 8)
-                .frame(width: 240, alignment: .leading)
-            }
-
-            Divider()
-
-            HStack(alignment: .top) {
-                Text(.settingsSmartExtraction)
-                    .frame(width: 200, alignment: .trailing)
-
-                HStack {
-                    Toggle(isOn: $smartExtraction) {}
-                }
-                .padding(.leading, 8)
-                .frame(width: 240, alignment: .leading)
-            }
-
-            HStack(alignment: .top) {
-                Text(.settingsExtractNextToArchive)
-                    .frame(width: 200, alignment: .trailing)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Toggle(isOn: $extractNextToArchive) {}
-                        .help(Text(.settingsExtractNextToArchiveHint))
-                    Toggle(isOn: $closeWindowAfterExtraction) {
-                        Text(.settingsCloseWindowAfterExtraction)
-                    }
-                    .toggleStyle(.checkbox)
-                    .disabled(!extractNextToArchive)
-                    .help(Text(.settingsCloseWindowAfterExtractionHint))
-                }
-                .padding(.leading, 8)
-                .frame(width: 240, alignment: .leading)
-            }
-
-            HStack(alignment: .top) {
-                Text(.settingsTrashArchiveAfterExtraction)
-                    .frame(width: 200, alignment: .trailing)
-
-                HStack {
-                    Toggle(isOn: $trashArchiveAfterExtraction) {}
-                }
-                .padding(.leading, 8)
-                .frame(width: 240, alignment: .leading)
-            }
-            .help(Text(.settingsTrashArchiveAfterExtractionHint))
-
-            HStack(alignment: .top) {
-                Text(.settingsNameClash)
-                    .frame(width: 200, alignment: .trailing)
-
-                HStack {
-                    Picker(String(""), selection: $nameClash) {
-                        Text(.settingsNameClashKeepBoth).tag(NameClash.keepBoth)
-                        Text(.settingsNameClashReplace).tag(NameClash.replace)
-                        Text(.settingsNameClashReplaceToTrash).tag(NameClash.replaceToTrash)
-                    }
-                }
-                .frame(width: 240, alignment: .leading)
-            }
-            .help(Text(.settingsNameClashHint))
         }
-        .padding()
+        .formStyle(.grouped)
         // Turning it off is a privacy switch, so what was collected goes with it —
         // the start page's "Clear" is out of reach once the section is hidden.
         .onChange(of: rememberRecentArchives) { _, isOn in
             if !isOn { RecentArchives.clear() }
-        }
-    }
-    
-    /// Returns the localized label for a breadcrumb position in the settings picker.
-    @ViewBuilder
-    private func breadcrumbPositionLabel(_ position: BreadcrumbPosition) -> some View {
-        switch position {
-        case .top:
-            Text(.commonTop)
-        case .bottom:
-            Text(.commonBottom)
-        case .none:
-            Text(.commonNone)
         }
     }
 }

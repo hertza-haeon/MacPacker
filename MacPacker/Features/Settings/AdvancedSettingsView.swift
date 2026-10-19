@@ -9,54 +9,53 @@ import Foundation
 import SwiftUI
 import tb
 
+/// MacPacker Lab: the cache, and the logs for a bug report.
 struct AdvancedSettingsView: View {
     private let applicationSupportDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-    
+
     var body: some View {
-        VStack {
-            HStack(alignment: .top) {
-                Text(.settingsCache)
-                    .frame(width: 160, alignment: .trailing)
-                
-                VStack(alignment: .leading) {
-                    Button {
-                        if let url = applicationSupportDirectory {
-                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
+        Form {
+            Section {
+                SettingRow(title: "Cache folder",
+                           detail: "Temporary copies made while opening and previewing archives.") {
+                    HStack(spacing: 6) {
+                        Button {
+                            if let url = applicationSupportDirectory {
+                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
+                            }
+                        } label: {
+                            Text(verbatim: "Show in Finder")
                         }
-                    } label: {
-                        Text(.settingsOpenCacheDirectory)
+                        .help(.settingsShowApplicationSupportFolder)
+
+                        Button {
+                            CacheCleaner().clean()
+                        } label: {
+                            Text(verbatim: "Clear")
+                        }
+                        .help(.settingsClearCacheHint)
                     }
-                    .help(.settingsShowApplicationSupportFolder)
-                    .disabled(applicationSupportDirectory == nil)
-                    
-                    Button {
-                        CacheCleaner().clean()
-                    } label: {
-                        Text(.settingsClearCache)
-                    }
-                    .help(.settingsClearCacheHint)
                     .disabled(applicationSupportDirectory == nil)
                 }
-                .frame(width: 240, alignment: .leading)
+            } header: {
+                Text(verbatim: "Cache")
             }
-            
-            HStack(alignment: .top) {
-                Text(.settingsLogs)
-                    .frame(width: 160, alignment: .trailing)
 
-                VStack(alignment: .leading, spacing: 4) {
+            Section {
+                SettingRow(title: "Logs from the last hour", detail: "For a bug report.") {
                     Button {
                         exportLogs()
                     } label: {
-                        Text(.settingsExportLogs)
+                        Text(verbatim: "Export…")
                     }
                 }
-                .frame(width: 240, alignment: .leading)
+            } header: {
+                Text(verbatim: "Troubleshooting")
             }
         }
-        .padding()
+        .formStyle(.grouped)
     }
-    
+
     private func exportLogs() {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "MacPacker-logs.ndjson"
@@ -73,5 +72,3 @@ struct AdvancedSettingsView: View {
         }
     }
 }
-
-

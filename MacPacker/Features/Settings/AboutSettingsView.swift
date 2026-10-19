@@ -7,169 +7,140 @@
 
 import SwiftUI
 
+/// MacPacker Lab: the About pane, centred — the app, its version and links,
+/// the legal notice as the maker wrote it, and the legal links at the foot.
 struct AboutSettingsView: View {
     @AppStorage("checkForUpdates") var checkForUpdates: SettingUpdateCheck = .automatically
     @AppStorage("updateBetaChannelOn") var updateBetaChannelOn: Bool = false
-    
+
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var appState: AppState
-    
+
     var body: some View {
-        VStack(alignment: .leading) {
-            HStack(alignment: .top) {
-                Image(nsImage: .appIcon(size: 128))
-                
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading) {
-                        Text(Bundle.main.displayName)
-                            .font(.largeTitle)
-                            .fontWeight(.light)
-                        Text(Bundle.main.appVersionLong)
-                            .font(.title2)
-                            .fontWeight(.light)
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    HStack {
-#if !STORE
-                        if let updaterController = appState.updaterController {
-                            CheckForUpdatesView(updater: updaterController.updater)
-                        }
-#endif
-                        
-                        Button {
-                            openURL(Constants.changelogURL)
-                        } label: {
-                            Text(.commonWhatsNew)
-                        }
-                    }
-                    
-#if !STORE
-                    VStack(alignment: .leading) {
-                        Toggle(isOn: Binding (
-                            get: { checkForUpdates == .automatically },
-                            set: { newValue in
-                                if newValue == true {
-                                    checkForUpdates = .automatically
-                                } else {
-                                    checkForUpdates = .manually
-                                }
-                            }
-                        )) {
-                            Text(.settingsAutomaticallyCheckForUpdates)
-                        }
-                        .toggleStyle(.checkbox)
-                        
-                        Toggle(.settingsIncludeBetaUpdates, isOn: $updateBetaChannelOn)
-                        .toggleStyle(.checkbox)
-                        .padding(.leading, 20)
-                        .disabled(checkForUpdates == .manually)
-                    }
-#endif
-                    
-                    Text(verbatim: "© 2023-2026 Stephan Arenswald")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Text(verbatim: "Licensed under the GNU General Public License v3.0 (GPL-3.0-or-later). This is free software: you can redistribute it and/or modify it under the terms of the GPL.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(verbatim: "No warranty. See LICENSE for details.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    
-                    #if !STORE
-                    Text(.feedbackSupport)
-                        .fontWeight(.semibold)
-                        .padding(.top, 14)
-                    HStack {
-                        Image("BuyMeCoffee")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(height: 32)
-                            .onTapGesture {
-                                openURL(URL(string: "https://www.buymeacoffee.com/sarensw")!)
-                            }
-                        Image("Paypal")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(height: 32)
-                            .onTapGesture {
-                                openURL(URL(string: "https://www.paypal.com/donate/?hosted_button_id=KM8GA7MJMYNQN")!)
-                            }
-                    }
-                    #endif
-                }
-                .padding(.leading, 24)
+        // At least as tall as the pane, so the links sit at its foot; taller
+        // (the website build's update and donation rows) scrolls.
+        GeometryReader { proxy in
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
             }
-            .padding(.leading, 32)
-            
-            Spacer()
-            
-            Divider()
-                .padding(.vertical, 16)
-            
+        }
+    }
+
+    private var content: some View {
+        VStack(spacing: 0) {
+            Image(nsImage: .appIcon(size: 128))
+                .resizable()
+                .frame(width: 96, height: 96)
+
+            Text(Bundle.main.displayName)
+                .font(.title2.weight(.medium))
+                .padding(.top, 8)
+            Text(verbatim: "Version \(Bundle.main.appVersionLong) (\(Bundle.main.appBuild))")
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .padding(.top, 2)
+
             HStack {
-                Button {
-                    AckWindowController().show()
-                } label: {
-                    Text(.commonAcknowledgements)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                #if !STORE
+                if let updaterController = appState.updaterController {
+                    CheckForUpdatesView(updater: updaterController.updater)
                 }
-                .buttonStyle(.plain)
-                .padding(.trailing, 8)
-                
+                #endif
                 Button {
-                    openURL(Constants.privacyURL)
+                    openURL(Constants.changelogURL)
                 } label: {
-                    Text(.commonPrivacy)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    Text(verbatim: "What’s New")
                 }
-                .buttonStyle(.plain)
-                .padding(.trailing, 8)
-                
-                Button {
-                    openURL(Constants.termsURL)
-                } label: {
-                    Text(.commonTerms)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 8)
-                
-                Button {
-                    openURL(Constants.imprintURL)
-                } label: {
-                    Text(.commonImprint)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                
-                Spacer()
-                
                 Button {
                     openURL(Constants.homepageURL)
                 } label: {
                     Text(.commonWebsite)
                 }
-                
                 Button {
                     openURL(URL(string: "mailto:\(Constants.supportMail)")!)
                 } label: {
                     Text(.contact)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.top, 16)
+
+            #if !STORE
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: Binding(
+                    get: { checkForUpdates == .automatically },
+                    set: { checkForUpdates = $0 ? .automatically : .manually }
+                )) {
+                    Text(.settingsAutomaticallyCheckForUpdates)
+                }
+                Toggle(.settingsIncludeBetaUpdates, isOn: $updateBetaChannelOn)
+                    .disabled(checkForUpdates == .manually)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.top, 14)
+            #endif
+
+            VStack(spacing: 4) {
+                Text(verbatim: "© 2023-2026 Stephan Arenswald")
+                Text(verbatim: "Licensed under the GNU General Public License v3.0 (GPL-3.0-or-later). This is free software: you can redistribute it and/or modify it under the terms of the GPL.")
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: "No warranty. See LICENSE for details.")
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 400)
+            .padding(.top, 20)
+
+            #if !STORE
+            VStack(spacing: 8) {
+                Text(.feedbackSupport)
+                    .fontWeight(.semibold)
+                HStack {
+                    Image("BuyMeCoffee")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 32)
+                        .onTapGesture {
+                            openURL(URL(string: "https://www.buymeacoffee.com/sarensw")!)
+                        }
+                    Image("Paypal")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 32)
+                        .onTapGesture {
+                            openURL(URL(string: "https://www.paypal.com/donate/?hosted_button_id=KM8GA7MJMYNQN")!)
+                        }
+                }
+            }
+            .padding(.top, 16)
+            #endif
+
+            Spacer(minLength: 24)
+
+            HStack(spacing: 18) {
+                footerLink(Text(.commonAcknowledgements)) { AckWindowController().show() }
+                footerLink(Text(.commonPrivacy)) { openURL(Constants.privacyURL) }
+                footerLink(Text(.commonTerms)) { openURL(Constants.termsURL) }
+                footerLink(Text(.commonImprint)) { openURL(Constants.imprintURL) }
+            }
         }
-        .padding(.vertical, 24)
+        .padding(.top, 36)
+        .padding(.bottom, 20)
+        .padding(.horizontal, 24)
+    }
+
+    private func footerLink(_ label: Text, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            label
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
     }
 }
 
 #Preview {
     AboutSettingsView()
-        .frame(width: 640, height: 480)
 }

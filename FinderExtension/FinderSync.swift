@@ -88,11 +88,11 @@ class FinderSync: FIFinderSync {
     // MARK: - Menu and toolbar item support
     
     override var toolbarItemName: String {
-        return "MacPacker"
+        return "MacPacker Lab"
     }
     
     override var toolbarItemToolTip: String {
-        return "MacPacker"
+        return "MacPacker Lab"
     }
     
     override var toolbarItemImage: NSImage {
@@ -140,7 +140,7 @@ class FinderSync: FIFinderSync {
 #if DEBUG
         let title: String = "MacPacker Debug"
 #else
-        let title: String = "MacPacker"
+        let title: String = "MacPacker Lab"
 #endif
 
         // The user picks the entries in Settings ▸ Extensions; the extension only

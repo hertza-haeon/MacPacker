@@ -1221,7 +1221,8 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				OTHER_SWIFT_FLAGS = "-DSTORE";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.sarensx.MacPacker$(BUNDLE_ID_SUFFIX)";
-				PRODUCT_NAME = MacPackerStore;
+				PRODUCT_MODULE_NAME = MacPackerStore;
+				PRODUCT_NAME = "MacPacker Lab";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -1242,7 +1243,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FinderExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "MacPacker Finder Integration";
+				INFOPLIST_KEY_CFBundleDisplayName = "MacPacker Lab Finder Integration";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1284,7 +1285,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = QuickLookExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "MacPacker Preview";
+				INFOPLIST_KEY_CFBundleDisplayName = "MacPacker Lab Preview";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

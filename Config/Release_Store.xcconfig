@@ -1,6 +1,6 @@
 #include "Version.xcconfig"
 
-INFOPLIST_KEY_CFBundleDisplayName = MacPacker
+INFOPLIST_KEY_CFBundleDisplayName = MacPacker Lab
 
 // Custom app URL scheme, injected into the Info.plists via $(APP_URL_SCHEME).
 APP_URL_SCHEME = app.macpacker

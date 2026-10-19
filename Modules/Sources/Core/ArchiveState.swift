@@ -1755,6 +1755,9 @@ extension ArchiveState {
                     }
                     throw error
                 }
+                // A Cancel the engine did not see, too late for it or never
+                // looked for, still ends the run as cancelled.
+                try Task.checkCancellation()
                 tempDirectories.append(contentsOf: result.tempDirs)
                 outcome = .done
             } catch is CancellationError {

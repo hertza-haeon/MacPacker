@@ -112,6 +112,15 @@ public class ArchiveState: ObservableObject {
     /// `nil` reads them as the engine does. Back to `nil` with each archive
     /// opened, and kept by `reopen(withNameEncoding:)`.
     @Published private(set) public var nameEncoding: String.Encoding? = nil
+
+    /// MacPacker Lab: above this many entries, a search waits for a pause
+    /// in typing and runs off the main actor: on 100,000 entries each
+    /// keystroke had held the window for up to a second.
+    var searchInBackgroundAbove = 5_000
+
+    /// MacPacker Lab: the search under way off the main actor, if any — what
+    /// a caller that reads the results waits for.
+    public private(set) var searchTask: Task<Void, Never>?
     @Published public var isReloadNeeded: Bool = false
 
     // Listeners for non-ui
@@ -295,6 +304,8 @@ extension ArchiveState {
         self.openError = nil
         self.saveError = nil
         self.testResult = nil
+        searchTask?.cancel()
+        searchTask = nil
         self.nameEncoding = nil
 
         self.url = nil
@@ -424,41 +435,52 @@ extension ArchiveState {
         searchText = ""
     }
 
-    /// All entries (any level) whose name contains the search text. Sorted
-    /// like the browse view; without a stored order, by name — dictionary
-    /// order would make the results jump around on every keystroke.
+    /// All entries (any level) whose name contains the search text, ordered
+    /// as `ArchiveListOrder` says.
     private func searchResults() -> [ArchiveItem] {
-        let matches = entries.values.filter {
-            $0.type != .root && $0.name.localizedCaseInsensitiveContains(searchText)
-        }
-        guard UserDefaults.standard.string(forKey: Keys.defaultOrderColumn) != nil else {
-            return matches.sorted { a, b in
-                if a.isFolder != b.isFolder { return a.isFolder }
-                let cmp = a.name.localizedStandardCompare(b.name)
-                if cmp != .orderedSame { return cmp == .orderedAscending }
-                return isBeforeByPath(a, b)
-            }
-        }
-        return sortedForDisplay(matches)
+        let keys = entries.values.map(ArchiveItemKey.init)
+        let matches = ArchiveListOrder.current.searched(keys, for: searchText) ?? []
+        return matches.compactMap { entries[$0.id] }
     }
 
-    /// Settles two entries the chosen column cannot separate. Ties are the rule,
-    /// not the exception — same name in two folders, same size, same timestamp —
-    /// and `sorted(by:)` is free to order equal elements any way it likes, so
-    /// without this the rows reshuffle as the search set narrows.
-    private func isBeforeByPath(_ a: ArchiveItem, _ b: ArchiveItem) -> Bool {
-        let cmp = (a.virtualPath ?? a.name).localizedStandardCompare(b.virtualPath ?? b.name)
-        if cmp != .orderedSame { return cmp == .orderedAscending }
-        return a.id.uuidString < b.id.uuidString
+    /// The results of a large archive's search, worked out on a snapshot of
+    /// its entries once typing has paused, and shown if the search is still
+    /// the same by then.
+    private func searchInBackground() {
+        searchTask?.cancel()
+        let text = searchText
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let self, !Task.isCancelled else { return }
+            let keys = self.entries.values.map(ArchiveItemKey.init)
+            let matches = await Self.search(keys, for: text, order: .current)
+            guard !Task.isCancelled, let matches, self.searchText == text else { return }
+            let entries = self.entries
+            self.childItems = matches.compactMap { entries[$0.id] }
+            self.isReloadNeeded = true
+        }
+    }
+
+    @concurrent
+    private nonisolated static func search(
+        _ keys: [ArchiveItemKey], for text: String, order: ArchiveListOrder
+    ) async -> [ArchiveItemKey]? {
+        order.searched(keys, for: text)
     }
 
     public func loadChildren() {
         guard let selectedItem else { return }
 
         if isSearching {
-            childItems = searchResults()
+            if entries.count > searchInBackgroundAbove {
+                searchInBackground()
+            } else {
+                childItems = searchResults()
+            }
             return
         }
+        // a search still under way is not shown once it is left
+        searchTask?.cancel()
 
         guard UserDefaults.standard.string(forKey: Keys.defaultOrderColumn) != nil else {
             childItems = selectedItem.children?.compactMap { entries[$0] }
@@ -471,58 +493,8 @@ extension ArchiveState {
     }
 
     private func sortedForDisplay(_ items: [ArchiveItem]) -> [ArchiveItem] {
-        let defaultOrderColumn = UserDefaults.standard.string(forKey: Keys.defaultOrderColumn)
-        let defaultOrderColumnAscending = UserDefaults.standard.bool(forKey: Keys.defaultOrderColumnAscending)
-
-        return items.sorted { a, b in
-                switch defaultOrderColumn {
-                case ArchiveSortOrder.name.rawValue:
-                    if a.isFolder != b.isFolder {
-                        return a.isFolder
-                    }
-
-                    let cmp = a.name.localizedStandardCompare(b.name)
-                    if cmp != .orderedSame {
-                        return defaultOrderColumnAscending ? cmp == .orderedAscending : cmp == .orderedDescending
-                    }
-
-                case ArchiveSortOrder.modificationDate.rawValue:
-                    let lhs = a.modificationDate ?? .distantPast
-                    let rhs = b.modificationDate ?? .distantPast
-
-                    if lhs != rhs {
-                        return defaultOrderColumnAscending ? lhs < rhs : lhs > rhs
-                    }
-
-                case ArchiveSortOrder.uncompressedSize.rawValue:
-                    if a.uncompressedSize != b.uncompressedSize {
-                        return defaultOrderColumnAscending
-                        ? a.uncompressedSize < b.uncompressedSize
-                        : a.uncompressedSize > b.uncompressedSize
-                    }
-
-                case ArchiveSortOrder.compressedSize.rawValue:
-                    if a.compressedSize != b.compressedSize {
-                        return defaultOrderColumnAscending
-                        ? a.compressedSize < b.compressedSize
-                        : a.compressedSize > b.compressedSize
-                    }
-
-                case ArchiveSortOrder.posixPermissions.rawValue:
-                    let lhs = a.posixPermissions ?? 0
-                    let rhs = b.posixPermissions ?? 0
-
-                    if lhs != rhs {
-                        return defaultOrderColumnAscending ? lhs < rhs : lhs > rhs
-                    }
-
-                default:
-                    break
-                }
-
-                // the column above left them equal — settle it the same way every time
-                return isBeforeByPath(a, b)
-        }
+        let byID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return ArchiveListOrder.current.sorted(items.map(ArchiveItemKey.init)).compactMap { byID[$0.id] }
     }
 
     /// This stream is the only way to get status from any engine in a concurrency safe way

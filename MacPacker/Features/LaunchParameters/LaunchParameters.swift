@@ -268,6 +268,8 @@ enum LaunchParameters {
 
         if let search, !search.isEmpty {
             state.search(search)
+            // MacPacker Lab: a large archive's results come a moment later
+            await state.searchTask?.value
         }
 
         if let select, !select.isEmpty {

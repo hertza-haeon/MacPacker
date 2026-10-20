@@ -78,8 +78,12 @@ struct IntegrationSettingsView: View {
         }
     }
 
+    /// Asked of the system off the main thread: it took 75 ms when the
+    /// window opened.
     private func refresh() {
-        isFinderSyncEnabled = SettingsTiming.measure("Finder extension status") { FIFinderSyncController.isExtensionEnabled }
+        Task {
+            isFinderSyncEnabled = await Task.detached { FIFinderSyncController.isExtensionEnabled }.value
+        }
     }
 }
 

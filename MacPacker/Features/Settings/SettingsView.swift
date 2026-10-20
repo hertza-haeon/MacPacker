@@ -99,6 +99,8 @@ enum SettingsViewTab: Int, CaseIterable, Identifiable {
 /// Settings is laid out.
 struct SettingsView: View {
     @EnvironmentObject private var state: AppState
+    /// The panes built so far. See the detail column.
+    @State private var builtTabs: Set<SettingsViewTab> = []
 
     var body: some View {
         let _ = SettingsTiming.building()
@@ -110,21 +112,37 @@ struct SettingsView: View {
                                                 max: SettingsSidebar.width)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
-            // Every pane is built when the window opens and kept: switching
-            // only shows another, so nothing holds up the highlight's slide
-            // (building a pane, the Formats one above all, took long enough
-            // to be seen).
+            // A pane once built is kept: switching only shows another, so
+            // nothing holds up the highlight's slide (building a pane, the
+            // Formats one above all, took long enough to be seen). The window
+            // opens with the shown pane alone; building all of them first
+            // held it up for half a second. The others follow once it is
+            // drawn, one per frame.
             ZStack {
                 ForEach(SettingsViewTab.main + SettingsViewTab.secondary) { tab in
                     let isShown = tab == state.selectedSettingsTab
-                    pane(tab)
-                        .onAppear { SettingsTiming.mark("\(tab) built") }
-                        .opacity(isShown ? 1 : 0)
-                        .allowsHitTesting(isShown)
-                        .accessibilityHidden(!isShown)
+                    if isShown || builtTabs.contains(tab) {
+                        pane(tab)
+                            .onAppear { SettingsTiming.mark("\(tab) built") }
+                            .opacity(isShown ? 1 : 0)
+                            .allowsHitTesting(isShown)
+                            .accessibilityHidden(!isShown)
+                    }
                 }
             }
             .navigationTitle(state.selectedSettingsTab.title)
+            .onChange(of: state.selectedSettingsTab, initial: true) { _, shown in
+                builtTabs.insert(shown)
+            }
+            .task {
+                for tab in SettingsViewTab.main + SettingsViewTab.secondary where !builtTabs.contains(tab) {
+                    // a frame's time, so the window answers while they build
+                    try? await Task.sleep(for: .milliseconds(16))
+                    if Task.isCancelled { return }
+                    builtTabs.insert(tab)
+                }
+                SettingsTiming.mark("all panes built")
+            }
         }
         .frame(width: 720, height: 560)
         .onAppear {

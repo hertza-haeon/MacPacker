@@ -87,6 +87,11 @@ bool sz_get_entry(SZArchiveRef archive, uint32_t index, SZEntry *entry_out);
 /// The string is copied internally -- caller retains ownership.
 void sz_set_password(SZArchiveRef archive, const char *password);
 
+/// MacPacker Lab: reads the names the archive does not store as UTF-8 in
+/// `cf_encoding`, a CFStringEncoding, for the listing and for extraction
+/// alike. kCFStringEncodingInvalidId (0xFFFFFFFF) reads them as 7-Zip does.
+void sz_set_name_encoding(SZArchiveRef archive, uint32_t cf_encoding);
+
 // --- Extraction ---
 
 /// Byte-level progress reported by 7-Zip during extraction.

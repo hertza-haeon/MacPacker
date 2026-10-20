@@ -113,6 +113,19 @@ public class SevenZipArchive {
         hasPassword = true
     }
 
+    // MARK: - Name encoding
+
+    /// MacPacker Lab: reads the names the archive does not store as UTF-8 —
+    /// a zip made on Windows in its local code page, say — in `encoding`,
+    /// for ``entries`` and for extraction alike. `nil` reads them as 7-Zip
+    /// does, which shows their bytes as private-use characters. A name that
+    /// is valid UTF-8 stays as it is.
+    public func setNameEncoding(_ encoding: String.Encoding?) {
+        let cfEncoding = encoding.map { CFStringConvertNSStringEncodingToEncoding($0.rawValue) }
+            ?? kCFStringEncodingInvalidId
+        sz_set_name_encoding(handle.ref, cfEncoding)
+    }
+
     // MARK: - Extraction
 
     /// Maps a bridge `SZ_EXTRACT_*` code to a typed error, consuming

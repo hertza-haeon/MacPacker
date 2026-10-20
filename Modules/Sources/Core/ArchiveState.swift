@@ -108,6 +108,10 @@ public class ArchiveState: ObservableObject {
     /// MacPacker Lab: what the last "Test Archive" found, until the user has
     /// seen it. A test that was stopped leaves none.
     @Published private(set) public var testResult: ArchiveTestResult? = nil
+    /// MacPacker Lab: the encoding the user chose for the archive's names;
+    /// `nil` reads them as the engine does. Back to `nil` with each archive
+    /// opened, and kept by `reopen(withNameEncoding:)`.
+    @Published private(set) public var nameEncoding: String.Encoding? = nil
     @Published public var isReloadNeeded: Bool = false
 
     // Listeners for non-ui
@@ -131,9 +135,12 @@ public class ArchiveState: ObservableObject {
 
     /// The selector everything downstream should use.
     private var effectiveEngineSelector: ArchiveEngineSelectorProtocol {
-        pinnedEngines.isEmpty
+        let selector: ArchiveEngineSelectorProtocol = pinnedEngines.isEmpty
             ? archiveEngineSelector
             : AutomaticEngineSelector(base: archiveEngineSelector, pinned: pinnedEngines)
+        // MacPacker Lab
+        guard let nameEncoding else { return selector }
+        return NameEncodingEngineSelector(base: selector, encoding: nameEncoding)
     }
     private let archiveTypeDetector: ArchiveTypeDetector
     
@@ -288,6 +295,7 @@ extension ArchiveState {
         self.openError = nil
         self.saveError = nil
         self.testResult = nil
+        self.nameEncoding = nil
 
         self.url = nil
         self.openedFile = nil
@@ -1152,6 +1160,24 @@ extension ArchiveState {
     }
 
     public func open(url: URL) {
+        open(url: url, nameEncoding: nil)
+    }
+
+    /// MacPacker Lab: whether the names can be read again in another
+    /// encoding — the archive is a file, with nothing running in its window
+    /// and no change waiting that a reopen would lose.
+    public var canChangeNameEncoding: Bool {
+        hasArchive && url != nil && !isBusy && !isSaving && !hasPendingChanges
+    }
+
+    /// MacPacker Lab: opens the window's archive again, its names read in
+    /// `encoding`; `nil` reads them as the engine does.
+    public func reopen(withNameEncoding encoding: String.Encoding?) {
+        guard canChangeNameEncoding, encoding != nameEncoding, let url else { return }
+        open(url: url, nameEncoding: encoding)
+    }
+
+    private func open(url: URL, nameEncoding: String.Encoding?) {
         // A second open supersedes the first. Without cancelling, the earlier
         // task keeps running against the same state.
         openTask?.cancel()
@@ -1159,6 +1185,7 @@ extension ArchiveState {
         let generation = openGeneration
 
         reset()
+        self.nameEncoding = nameEncoding
         updateStatus(.processing)
         
         self.hasArchive = true
@@ -1216,7 +1243,10 @@ extension ArchiveState {
                 // them. XAD only reads, and 7-Zip's writer would take its numbers
                 // for other entries.
                 if let type, let used = loaderResult.engineType,
-                   type.engines.contains(where: { $0.id == used.configId && $0.canEdit }) {
+                   type.engines.contains(where: { $0.id == used.configId && $0.canEdit }),
+                   // MacPacker Lab: nor with names read in a chosen encoding,
+                   // which are not the names the archive stores
+                   nameEncoding == nil {
                     canBeEdited = true
                 }
                 

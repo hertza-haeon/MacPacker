@@ -16,6 +16,13 @@ import SwiftUI
 /// front window's state is resolved through its window controller instead,
 /// and the actions validate themselves (no-op when nothing applies).
 struct ArchiveCommands: Commands {
+    /// MacPacker Lab: what the front window's menu items show.
+    @ObservedObject private var front = FrontArchive.shared
+
+    /// MacPacker Lab: the code pages, by the name macOS gives each.
+    private static let nameEncodings = ArchiveNameEncoding.offered.sorted {
+        String.localizedName(of: $0).localizedStandardCompare(String.localizedName(of: $1)) == .orderedAscending
+    }
 
     @MainActor
     private static func frontArchiveState() -> ArchiveState? {
@@ -82,6 +89,34 @@ struct ArchiveCommands: Commands {
 
             // Deletion is the standard Edit ▸ Delete menu item, handled by the
             // archive table (ArchiveTableView.delete(_:)) — not a File command.
+        }
+
+        // MacPacker Lab: View ▸ File name encoding, for an archive whose
+        // names were stored in a Windows code page and read wrong as UTF-8
+        CommandGroup(after: .toolbar) {
+            Divider()
+
+            Menu {
+                Picker(selection: Binding(
+                    get: { front.state?.nameEncoding },
+                    set: { front.state?.reopen(withNameEncoding: $0) }
+                )) {
+                    // UTF-8 is what no choice reads in
+                    Text(verbatim: String.localizedName(of: .utf8))
+                        .tag(String.Encoding?.none)
+                    Divider()
+                    ForEach(Self.nameEncodings, id: \.rawValue) { encoding in
+                        Text(verbatim: String.localizedName(of: encoding))
+                            .tag(Optional(encoding))
+                    }
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Text(.archiveNameEncoding)
+            }
+            .disabled(!(front.state?.canChangeNameEncoding ?? false))
         }
 
         // Edit ▸ Find, right after Select All, as in Finder and Mail.

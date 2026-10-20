@@ -256,6 +256,11 @@ final actor Archive7ZipEngine: ArchiveEngine {
             }
         }()
 
+        // MacPacker Lab: before the entries are read, so they read in it
+        if let encoding = ArchiveNameEncoding.current {
+            archive.setNameEncoding(encoding)
+        }
+
         if !archive.hasPassword, try archive.entries.contains(where: \.isEncrypted),
            let password = try await attempts.nextIfOffered() {
             archive.setPassword(password)

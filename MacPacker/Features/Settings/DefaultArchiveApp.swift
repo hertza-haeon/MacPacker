@@ -11,48 +11,20 @@ import Core
 import UniformTypeIdentifiers
 
 /// Which app opens each archive format, and handing formats to this app or
-/// back to the app they had before.
-///
-/// macOS keeps a default app per file type (`UTType`), not per format, and the
-/// type it gives an extension is not always the one the catalog lists: `.lzh`
-/// is `public.archive.lha`, not `org.7-zip.lha-archive`. So a format is handled
-/// through the type of each of its extensions, the one Finder goes by when a
-/// file is double-clicked.
+/// back to the app they had before. Which formats and types are concerned is
+/// `OneClickFormats`.
 @MainActor
 enum DefaultArchiveApp {
-    /// Formats the one-click button leaves to the apps that usually open them:
-    /// installers and programs (pkg, msi, exe) and help files (chm). Each can
-    /// still be ticked on its own in the table.
-    static let leftOutOfOneClick: Set<String> = ["msapp", "msi", "pkg", "chm"]
-    /// Kinds the one-click button leaves alone: disk images, which mount.
-    static let kindsLeftOutOfOneClick: Set<String> = ["image"]
-    /// Extensions this app never takes: files that are zips or rars inside but
-    /// belong to other apps (Java, Android, comic readers), and `.aar`, which
-    /// macOS knows as Apple Archive rather than Android's.
-    static let otherAppsExtensions: Set<String> = ["jar", "apk", "aar", "cbz", "cbr"]
-
     /// For each file type this app took over, the bundle ID of the app that
     /// opened it before, to give it back to.
     private static let previousAppsKey = "defaultArchiveAppPrevious"
 
-    /// The file types of a format's extensions as macOS knows them, with the
-    /// short tarball names (`.tgz`) for a compression format.
     static func types(of format: ArchiveTypeDto, in catalog: ArchiveTypeCatalog) -> [UTType] {
-        var extensions = format.extensions
-        for compound in catalog.allCompositions() where compound.components.last == format.id {
-            extensions += compound.extensions
-        }
-        var seen = Set<String>()
-        return extensions
-            // Finder goes by the last extension only: `x.tar.gz` is a `.gz`
-            .filter { !$0.contains(".") && !otherAppsExtensions.contains($0.lowercased()) }
-            .compactMap { UTType(filenameExtension: $0) }
-            .filter { seen.insert($0.identifier).inserted }
+        OneClickFormats.types(of: format, in: catalog)
     }
 
-    /// The formats the one-click button covers: archives and compressed files.
     static func isInOneClick(_ format: ArchiveTypeDto) -> Bool {
-        !kindsLeftOutOfOneClick.contains(format.kind) && !leftOutOfOneClick.contains(format.id)
+        OneClickFormats.includes(format)
     }
 
     /// How many of the types another app opens now, and those apps' names:

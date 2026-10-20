@@ -24,6 +24,8 @@ struct CancelEngineActionButtonView: View {
                 }
         }
         .buttonStyle(.plain)
+        // MacPacker Lab: a symbol says nothing to VoiceOver
+        .accessibilityLabel(Text(.commonCancel))
         .padding(.leading, 8)
         .padding(.trailing, 4)
     }

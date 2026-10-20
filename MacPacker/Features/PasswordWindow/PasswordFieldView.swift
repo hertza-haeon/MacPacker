@@ -28,6 +28,9 @@ struct PasswordFieldView: View {
                 Image(systemName: isRevealed ? "eye.slash" : "eye")
             }
             .buttonStyle(.plain)
+            // MacPacker Lab
+            .help(Text(isRevealed ? LocalizedStringResource.accessibilityHidePassword : .accessibilityShowPassword))
+            .accessibilityLabel(Text(isRevealed ? LocalizedStringResource.accessibilityHidePassword : .accessibilityShowPassword))
         }
     }
 }

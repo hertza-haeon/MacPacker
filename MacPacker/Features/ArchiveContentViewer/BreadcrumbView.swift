@@ -86,6 +86,8 @@ struct BreadcrumbView: View {
                                 .frame(width: 3, height: 6)
                                 .fontWeight(.black)
                                 .foregroundColor(.primary.opacity(0.6))
+                                // MacPacker Lab: a separator, not a thing
+                                .accessibilityHidden(true)
                         }
                     }
 

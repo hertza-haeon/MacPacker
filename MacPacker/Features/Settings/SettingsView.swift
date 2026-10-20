@@ -343,6 +343,8 @@ private struct SettingsIcon: View {
                 }
                 .foregroundStyle(.white)
             }
+            // the title beside it says which pane
+            .accessibilityHidden(true)
     }
 }
 

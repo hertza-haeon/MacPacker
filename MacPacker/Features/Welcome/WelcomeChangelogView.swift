@@ -59,6 +59,8 @@ struct WelcomeArrowLabel: View {
         HStack(spacing: 4) {
             Text(title)
             Image(systemName: "arrow.forward")
+                // MacPacker Lab
+                .accessibilityHidden(true)
         }
     }
 }
@@ -97,6 +99,8 @@ struct WelcomeChangelogView: View {
                 Divider()
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Image(systemName: "clock")
+                        // MacPacker Lab
+                        .accessibilityHidden(true)
                     Text(.welcomeComingNext)
                         .fontWeight(.semibold)
                     Text(localizedChangelogText(comingNext))

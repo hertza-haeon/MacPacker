@@ -182,6 +182,8 @@ struct HomeView: View {
             } label: {
                 Image(systemName: "macwindow.on.rectangle")
             }
+            // MacPacker Lab
+            .accessibilityLabel(Text(.commonQuickCompressWindow))
             // .plain, not .borderless: a borderless button carries its own
             // trailing inset, which pushes the icon past the right edge of the
             // drop area below it.
@@ -273,6 +275,8 @@ private struct StartCard: View {
                     .font(.title3)
                     .foregroundStyle(.tint)
                     .frame(width: 24)
+                    // MacPacker Lab: the title beside it says it
+                    .accessibilityHidden(true)
                 Text(verbatim: title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
@@ -324,6 +328,8 @@ private struct DocLinkRow: View {
                 Image(systemName: icon)
                     .foregroundStyle(.tint)
                     .frame(width: 22)
+                    // MacPacker Lab: the title beside it says it
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: title).foregroundStyle(.tint)
                     Text(verbatim: detail).font(.callout).foregroundStyle(.secondary)

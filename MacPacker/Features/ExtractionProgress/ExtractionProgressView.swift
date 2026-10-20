@@ -160,6 +160,8 @@ struct ExtractionProgressRowView: View {
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            // MacPacker Lab: the row's action says it
+                            .accessibilityHidden(true)
                     }
                 }
 
@@ -212,6 +214,14 @@ struct ExtractionProgressRowView: View {
                 onToggleExpanded()
             }
         }
+        // MacPacker Lab: what a click on the row does, for VoiceOver
+        .accessibilityActions {
+            if job.hasEngineProgress {
+                Button(isExpanded ? LocalizedStringResource.accessibilityHideDetails : .accessibilityShowDetails) {
+                    onToggleExpanded()
+                }
+            }
+        }
     }
 
     // MARK: Pieces
@@ -251,28 +261,34 @@ struct ExtractionProgressRowView: View {
     @ViewBuilder
     private var trailingControl: some View {
         switch job.state {
+        // MacPacker Lab: each symbol labelled, for VoiceOver
         case .running:
             Button(action: onCancel) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text(.commonCancel))
         case .done:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
+                .accessibilityLabel(Text(.commonDone))
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
+                .accessibilityLabel(Text(.accessibilityFailed))
             if let onDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(Text(.accessibilityDismiss))
             }
         case .cancelled:
             Image(systemName: "slash.circle")
                 .foregroundStyle(.secondary)
+                .accessibilityLabel(Text(.accessibilityStopped))
         }
     }
 }

@@ -76,6 +76,9 @@ struct CompressPinButton: View {
         .buttonStyle(.plain)
         .contentShape(Rectangle())
         .help(Text(.archiveCompressWindowTop))
+        // MacPacker Lab: said as what it does, and whether it is on
+        .accessibilityLabel(Text(.archiveCompressWindowTop))
+        .accessibilityAddTraits(floats ? .isSelected : [])
         .onChange(of: floats, initial: true) { _, value in apply(value) }
     }
 }

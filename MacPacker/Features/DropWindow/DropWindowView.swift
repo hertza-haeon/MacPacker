@@ -105,6 +105,8 @@ struct DropWindowView: View {
                     Image(systemName: "chevron.right")
                         .rotationEffect(.degrees(optionsExpanded ? 90 : 0))
                         .font(.caption2)
+                        // MacPacker Lab: "Options" says it
+                        .accessibilityHidden(true)
                     Text(.commonOptions)
                 }
             }
@@ -119,6 +121,8 @@ struct DropWindowView: View {
                     if !options.password.isEmpty {
                         Image(systemName: "lock.fill")
                             .imageScale(.small)
+                            // MacPacker Lab
+                            .accessibilityLabel(Text(.accessibilityPasswordSet))
                     }
                     Text(verbatim: compressionLevelName(options.level))
                         .lineLimit(1)
@@ -229,10 +233,15 @@ struct DropJobRow: View {
     @ViewBuilder
     private var icon: some View {
         switch job.outcome {
+        // MacPacker Lab: each symbol labelled, for VoiceOver
         case .running: Image(systemName: "shippingbox").foregroundStyle(.secondary)
+            .accessibilityLabel(Text(.commonCompressing))
         case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            .accessibilityLabel(Text(.commonDone))
         case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            .accessibilityLabel(Text(.accessibilityFailed))
         case .denied: Image(systemName: "hand.raised.fill").foregroundStyle(.secondary)
+            .accessibilityLabel(Text(.accessibilityFailed))
         }
     }
 

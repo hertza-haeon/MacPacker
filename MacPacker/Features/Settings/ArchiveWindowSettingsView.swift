@@ -22,6 +22,8 @@ struct ArchiveWindowSettingsView: View {
         Form {
             Section {
                 windowPreview
+                    // a picture of what the controls set
+                    .accessibilityHidden(true)
                 SettingToggle(title: "Show parent folder (“..”)", isOn: $showParentRow)
                 Picker(selection: $breadcrumbPosition) {
                     Text(verbatim: "Top").tag(BreadcrumbPosition.top)

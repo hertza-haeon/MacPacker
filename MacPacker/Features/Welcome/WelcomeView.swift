@@ -57,6 +57,8 @@ struct WelcomeView: View {
                 Image(systemName: "heart")
                     .font(.system(size: 28, weight: .medium))
                     .foregroundStyle(.orange)
+                    // MacPacker Lab: the title beside it says it
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(.welcomeSupportTitle(Constants.appName))
                         .font(.title3.weight(.semibold))

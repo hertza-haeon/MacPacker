@@ -224,6 +224,8 @@ struct ArchiveView: View {
             .overlay {
                 VStack(spacing: 10) {
                     Image(systemName: icon).font(.system(size: 30, weight: .light))
+                        // MacPacker Lab: the title below it says it
+                        .accessibilityHidden(true)
                     Text(verbatim: title).font(.callout.weight(.medium))
                 }
                 .foregroundStyle(Color.primary.opacity(isActive ? 0.85 : 0.45))

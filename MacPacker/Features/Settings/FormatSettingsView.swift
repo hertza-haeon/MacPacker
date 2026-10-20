@@ -195,6 +195,7 @@ struct FormatSettingsView: View {
                     }
                     .buttonStyle(.borderless)
                     .help(Text(.settingsInfoOnEngines))
+                    .accessibilityLabel(Text(.settingsInfoOnEngines))
                     .popover(isPresented: $showEngineInfo) { engineInfo }
                 }
             }

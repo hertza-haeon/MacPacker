@@ -118,6 +118,8 @@ struct StatusBarView: View {
                             if let isEncrypted = archiveState.isEncrypted, isEncrypted {
                                 Text(verbatim: " • ")
                                 Image(systemName: "lock.fill")
+                                    // MacPacker Lab
+                                    .accessibilityLabel(Text(.accessibilityEncrypted))
                             }
                         } else {
                             Text(.commonSelectedCount(archiveState.selectedItems.count))

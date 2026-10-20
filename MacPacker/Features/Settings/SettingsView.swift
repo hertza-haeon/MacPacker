@@ -101,6 +101,7 @@ struct SettingsView: View {
     @EnvironmentObject private var state: AppState
 
     var body: some View {
+        let _ = SettingsTiming.building()
         NavigationSplitView {
             SettingsSidebar(selection: $state.selectedSettingsTab)
                 // the column width alone is not honoured in the Settings window
@@ -117,6 +118,7 @@ struct SettingsView: View {
                 ForEach(SettingsViewTab.main + SettingsViewTab.secondary) { tab in
                     let isShown = tab == state.selectedSettingsTab
                     pane(tab)
+                        .onAppear { SettingsTiming.mark("\(tab) built") }
                         .opacity(isShown ? 1 : 0)
                         .allowsHitTesting(isShown)
                         .accessibilityHidden(!isShown)
@@ -127,7 +129,11 @@ struct SettingsView: View {
         .frame(width: 720, height: 560)
         .onAppear {
             NSApplication.shared.activate(ignoringOtherApps: true)
+            SettingsTiming.mark("appeared")
+            // the next turn of the run loop: once the window is drawn
+            DispatchQueue.main.async { SettingsTiming.mark("ready") }
         }
+        .onDisappear { SettingsTiming.end() }
     }
 
     @ViewBuilder

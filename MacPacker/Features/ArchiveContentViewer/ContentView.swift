@@ -15,6 +15,7 @@ struct ContentView: View {
     
     // environment
     @Environment(\.openWindow) var openWindow
+    @Environment(\.openSettings) private var openSettings
     @EnvironmentObject var archiveState: ArchiveState
     
     @State private var showPasswordSheet: Bool = false
@@ -68,6 +69,11 @@ struct ContentView: View {
             set: { archiveState.search($0) }
         ))
         .onAppear {
+            // MacPacker Lab: -OpenSettings
+            if LaunchParameters.takeOpenSettings() {
+                SettingsTiming.begin()
+                openSettings()
+            }
             if self.archiveState.passwordProvider == nil {
                 let passwordProvider: ArchivePasswordUserProvider = { request in
 

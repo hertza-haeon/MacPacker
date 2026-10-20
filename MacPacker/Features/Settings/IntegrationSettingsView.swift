@@ -79,7 +79,7 @@ struct IntegrationSettingsView: View {
     }
 
     private func refresh() {
-        isFinderSyncEnabled = FIFinderSyncController.isExtensionEnabled
+        isFinderSyncEnabled = SettingsTiming.measure("Finder extension status") { FIFinderSyncController.isExtensionEnabled }
     }
 }
 

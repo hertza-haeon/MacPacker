@@ -41,6 +41,10 @@ struct FormatSettingsView: View {
     @State private var isChangingDefaults = false
 
     fileprivate func refreshFormatConfig() {
+        SettingsTiming.measure("formats' default apps") { refreshFormatConfigTimed() }
+    }
+
+    private func refreshFormatConfigTimed() {
         var result: [ArchiveFormatSettings] = []
 
         // Take all known formats from the catalog

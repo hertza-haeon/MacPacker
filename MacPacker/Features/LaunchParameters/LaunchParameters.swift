@@ -52,6 +52,8 @@ enum LaunchParameters {
     static let quickLookPreviewKey = "QuickLookPreview"
     static let dropZoneKey = "DropZone"
     static let disableUpdateChecksKey = "DisableUpdateChecks"
+    /// MacPacker Lab: opens Settings at launch, timed (`SettingsTiming`).
+    static let openSettingsKey = "OpenSettings"
 
     /// Resolves a launch parameter from its two sources (command line first,
     /// then SandboxPilot in debug builds).
@@ -118,6 +120,14 @@ enum LaunchParameters {
     /// zones and needs its own switch.
     static var pinsCompressArea: Bool { value(dropZoneKey) == "compress" }
     #endif
+
+    /// MacPacker Lab: true once, when launch parameters ask for Settings.
+    static func takeOpenSettings() -> Bool {
+        guard flag(openSettingsKey), !openSettingsTaken else { return false }
+        openSettingsTaken = true
+        return true
+    }
+    private static var openSettingsTaken = false
 
     /// True when launch parameters ask to skip the startup update check.
     static var disableUpdateChecks: Bool { flag(disableUpdateChecksKey) }

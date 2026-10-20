@@ -738,8 +738,12 @@ extension AllCoreTests {
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
             // This should hit the error path in extract(_:to:)
-            try await engine.extract(tempFile, to: tempDir, passwordResolver: { _ in nil })
-            // The engine catches errors internally and logs — doesn't throw
+            // MacPacker Lab: which now throws, as the other engines do — it
+            // used to log and return, and the extraction counted as done
+            await #expect(throws: ArchiveError.self) {
+                try await engine.extract(tempFile, to: tempDir, passwordResolver: { _ in nil })
+            }
+            #expect(try FileManager.default.contentsOfDirectory(atPath: tempDir.path).isEmpty)
         }
     }
 

@@ -67,9 +67,10 @@ final actor ArchiveSwcEngine: ArchiveEngine {
         // blocking decompression — keep it off the cooperative pool
         return try await runBlocking {
             if let data = try? Data(contentsOf: url, options: .mappedIfSafe) {
-                let decompressedData = try LZ4.decompress(data: data)
+                let decompressedData = try Self.decompressed(data, of: url)
 
-                FileManager.default.createFile(atPath: extractedFilePathName.path, contents: decompressedData)
+                // MacPacker Lab: a write that fails says so
+                try decompressedData.write(to: extractedFilePathName, options: .atomic)
 
                 let urlsByItemID: [UUID: URL] = [UUID(): extractedFilePathName]
                 return ArchiveExtractionResult(urlsByItemID: urlsByItemID)
@@ -88,21 +89,30 @@ final actor ArchiveSwcEngine: ArchiveEngine {
         let extractedFileName = stripFileExtension(sourceFileName)
         let extractedFilePathName = destination.appendingPathComponent(extractedFileName, isDirectory: false)
         
-        do {
-            // blocking decompression — keep it off the cooperative pool
-            try await runBlocking {
-                if let data = try? Data(contentsOf: url, options: .mappedIfSafe) {
-                    let decompressedData = try LZ4.decompress(data: data)
-
-                    FileManager.default.createFile(atPath: extractedFilePathName.path, contents: decompressedData)
-                } else {
-                    log.error("Could not decompress archive")
-                }
+        // MacPacker Lab: what fails is thrown, as every other engine does.
+        // It used to be logged and left there, so a damaged archive was
+        // reported extracted with nothing written — and, with "Move the
+        // archive to the Trash" on, put in the Bin.
+        // blocking decompression — keep it off the cooperative pool
+        try await runBlocking {
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                log.error("Could not read archive")
+                throw ArchiveError.extractionFailed("Could not read \(url.lastPathComponent).")
             }
-        } catch {
-            log.error(error.localizedDescription)
+            let decompressedData = try Self.decompressed(data, of: url)
+            try decompressedData.write(to: extractedFilePathName, options: .atomic)
         }
     }
-    
-    
+
+    /// MacPacker Lab: the data decompressed, or an error that says what
+    /// happened rather than SWCompression's own type name.
+    private static func decompressed(_ data: Data, of url: URL) throws -> Data {
+        do {
+            return try LZ4.decompress(data: data)
+        } catch {
+            log.error(error.localizedDescription)
+            throw ArchiveError.extractionFailed(
+                "Could not decompress \(url.lastPathComponent): the data is damaged, or is not LZ4.")
+        }
+    }
 }

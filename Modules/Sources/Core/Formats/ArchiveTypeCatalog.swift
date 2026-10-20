@@ -100,9 +100,11 @@ public final class ArchiveTypeCatalog: ArchiveTypeCatalogProtocol, Sendable {
     // The writer names a format as files of it are called — `zip`, `7z` — so the
     // catalog's format for one is the one that lists that name as an extension.
 
-    /// The catalog's format for an archive written as `format`.
+    /// The catalog's format for an archive written as `format`: for a
+    /// compressed tar, the tar its compression holds.
     public func type(writtenAs format: CompressionOptions.Format) -> ArchiveTypeDto? {
-        getType(where: { $0.extensions.contains(format.rawValue) })
+        if format.isCompressedTar { return getType(for: "tar") }
+        return getType(where: { $0.extensions.contains(format.rawValue) })
     }
 
     /// The format a file with the extension `ext` is written in: the writer's

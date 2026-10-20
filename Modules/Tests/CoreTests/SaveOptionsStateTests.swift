@@ -26,10 +26,33 @@ private final class Prompts: @unchecked Sendable {
 
 /// Entry paths as stored, sidecars included, from a reader that folds nothing.
 private func storedPaths(_ archive: URL) throws -> [String] {
+    // a compressed tar's entries are in its tar: macOS's tar reads through both
+    if CompressionOptions.Format.allCases.contains(where: { $0.isCompressedTar && archive.lastPathComponent.hasSuffix("." + $0.rawValue) }) {
+        return try systemTar(["-tf", archive.path]).split(separator: "\n").map(String.init)
+    }
     guard archive.pathExtension == "zip" else {
         return try SevenZipArchive(url: archive).entries.map(\.path)
     }
     return try systemZipEntries(archive)
+}
+
+/// Runs macOS's tar, and gives back what it printed.
+@discardableResult
+func systemTar(_ arguments: [String]) throws -> String {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+    process.arguments = arguments
+    let output = Pipe()
+    process.standardOutput = output
+    let errors = Pipe()
+    process.standardError = errors
+    try process.run()
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    let problem = errors.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    try #require(process.terminationStatus == 0,
+                 "tar \(arguments.joined(separator: " ")) failed: \(String(decoding: problem, as: UTF8.self))")
+    return String(decoding: data, as: UTF8.self)
 }
 
 extension AllCoreTests {
@@ -127,7 +150,9 @@ extension AllCoreTests {
 
         /// The writer holds the same line on its own: at level 0 a dictionary or
         /// word size is dropped, not passed on for 7-Zip to refuse.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        // (Store and Copy are how a zip and a 7z record it; a compressed tar has
+        // no level 0 — see CompressedTarWriteTests.)
+        @Test(arguments: CompressionOptions.Format.allCases.filter { !$0.isCompressedTar })
         func theWriterStoresWhateverCodecSettingsCome(_ format: CompressionOptions.Format) throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -365,7 +390,12 @@ extension AllCoreTests {
                 let first = (o.volumeSize ?? 0) > 0 ? URL(fileURLWithPath: url.path + ".001") : url
                 let out = dir.appendingPathComponent(UUID().uuidString)
                 try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-                try SevenZipArchive(url: first, password: o.password).extractAll(to: out)
+                if o.format.isCompressedTar {
+                    // read through its compression and its tar at once
+                    try systemTar(["-xf", first.path, "-C", out.path])
+                } else {
+                    try SevenZipArchive(url: first, password: o.password).extractAll(to: out)
+                }
                 #expect(try Data(contentsOf: out.appendingPathComponent("a.txt")) == data,
                         "\(o.format.rawValue) level \(o.level) \(o.method?.rawValue ?? "-")")
                 written += 1
@@ -888,7 +918,8 @@ extension AllCoreTests {
             return state
         }
 
-        @Test(arguments: CompressionOptions.Format.allCases)
+        // (A compressed tar is written whole: see CompressedTarWriteTests.)
+        @Test(arguments: CompressionOptions.Format.allCases.filter(CompressionOptions.canSplit))
         func aSplitSaveReopensItsFirstVolume(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -926,7 +957,8 @@ extension AllCoreTests {
 
             await state.save()?.value
             #expect(state.saveError == nil, "\(state.saveError ?? "")")
-            #expect(try SevenZipArchive(url: outer).entries.contains { $0.path == "added.txt" })
+            // (read through a compressed tar's compression by macOS's tar)
+            #expect(try systemEntries(outer).contains("added.txt"))
         }
 
         /// The kinds of set a window can hold.
@@ -1016,7 +1048,9 @@ extension AllCoreTests {
 
         /// Every entry is written again with the chosen method — onto another file,
         /// and onto the archive's own, where the panel suggests saving.
-        @Test(arguments: CompressionOptions.Format.allCases, [false, true])
+        // (A compressed tar has no method to choose: its compression is its own.)
+        @Test(arguments: CompressionOptions.Format.allCases.filter { !CompressionOptions.methods(for: $0).isEmpty },
+              [false, true])
         func saveAsCarriesTheChosenMethod(_ format: CompressionOptions.Format, ontoItsOwnFile: Bool) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }

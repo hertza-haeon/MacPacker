@@ -51,6 +51,11 @@ extension SevenZipArchive {
         rewrite: Bool = false,
         progress: WriteProgressHandler? = nil
     ) throws {
+        if options.writerFormat == nil, let compression = options.format.tarCompression {
+            try writeCompressedTar(compression: compression, source: source, destination: destination, items: items,
+                                   options: options, sourcePassword: sourcePassword, progress: progress)
+            return
+        }
         var options = options
         let items = options.excludeDSStore ? items.excludingDSStore() : items
         let inPlace = source != nil
@@ -170,7 +175,15 @@ extension SevenZipArchive {
                     resolved, from: sourceArchive, into: scratch, progress: firstHalf)
             }
         }
-        resolved.append(contentsOf: try metadataSidecars(for: resolved, scratch: scratch))
+        // Not into a compressed tar's two passes. Its gzip, xz or bzip2 holds
+        // the tar alone; and in a tar, macOS's own tar reads `._name` as the
+        // metadata of the entry that comes next, `name`, so the zip's
+        // `__MACOSX/` mirror leaves it waiting for an entry that never comes
+        // ("Truncated input file"). Elsewhere a tar's `._name` files are
+        // clutter, and a tar.gz is often meant for elsewhere.
+        if options.writerFormat == nil {
+            resolved.append(contentsOf: try metadataSidecars(for: resolved, scratch: scratch))
+        }
 
         let writeProgress = rebuild
             ? progress.map { report in
@@ -199,6 +212,98 @@ extension SevenZipArchive {
 
     /// A file next to `destination` named like one of its volumes — `x.zip.001`,
     /// `x.zip.002`, … — or `nil`. The first by name, when there are several.
+    /// A compressed tar, written the way 7-Zip writes one: the tar first, in
+    /// the temporary folder, then that one file compressed into `destination` —
+    /// its gzip, xz and bzip2 hold a single file. The tar is named as the
+    /// result is without its compression (`photos.tar` for `photos.tar.gz`),
+    /// the name gzip keeps in its header.
+    private static func writeCompressedTar(
+        compression: String,
+        source: URL?,
+        destination: URL,
+        items: [ArchiveUpdateItem],
+        options: CompressionOptions,
+        sourcePassword: String?,
+        progress: WriteProgressHandler?
+    ) throws {
+        if options.encrypts {
+            throw SevenZipError.writeFailed("A \(options.format.rawValue) can't be locked with a password")
+        }
+        if (options.volumeSize ?? 0) > 0 {
+            throw SevenZipError.writeFailed("A \(options.format.rawValue) can't be split into volumes")
+        }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tar = folder.appendingPathComponent(CompressionOptions.Format.baseName(of: destination.lastPathComponent) + ".tar")
+        // A compressed tar as the source — an edit of one, or a Save As — is
+        // read as the tar it holds: unpacked first, and that is what the edit
+        // applies to. 7-Zip opens the gzip around it, which holds one file.
+        let inner = try source.flatMap { try innerTar(of: $0, into: folder) }
+
+        // The tar takes the items as any archive would; the codec settings
+        // are the compression's, which the level stands for.
+        var tarOptions = options
+        tarOptions.writerFormat = "tar"
+        tarOptions.method = nil
+        tarOptions.solidMode = nil
+        tarOptions.dictionarySize = nil
+        tarOptions.wordSize = nil
+        tarOptions.solidBlockSize = nil
+        // Each pass reports its own bytes: the tar is the first half of the
+        // whole, its compression the second.
+        let tarTotal = TarTotal()
+        try writeArchive(source: inner ?? source, destination: tar, items: items, options: tarOptions,
+                         sourcePassword: inner == nil ? sourcePassword : nil, rewrite: true,
+                         progress: progress.map { report in
+                             { completed, total in
+                                 tarTotal.bytes = total
+                                 return report(completed, total * 2)
+                             }
+                         })
+
+        // (Not Store: a compressed tar is compressed, and gzip has no level 0.)
+        var packOptions = CompressionOptions(format: options.format, level: max(options.level, 1))
+        packOptions.writerFormat = compression
+        // Over its own source, the result goes beside it first and takes its
+        // place once whole, as an update does: a write that fails part-way
+        // leaves the archive as it was.
+        let inPlace = source?.standardizedFileURL == destination.standardizedFileURL
+        let output = inPlace ? folder.appendingPathComponent("result." + options.format.rawValue) : destination
+        try writeArchive(destination: output,
+                         items: [.addFile(archivePath: tar.lastPathComponent, diskPath: tar)],
+                         options: packOptions,
+                         progress: progress.map { report in
+                             { completed, total in
+                                 let done = total == 0 ? 0 : UInt64(Double(completed) / Double(total) * Double(tarTotal.bytes))
+                                 return report(tarTotal.bytes + done, tarTotal.bytes * 2)
+                             }
+                         })
+        if inPlace {
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: output)
+        }
+    }
+
+    /// The tar a compressed tar holds, unpacked into `folder`; `nil` when
+    /// `archive` is no gzip, xz or bzip2 around a tar — a zip saved as a
+    /// tar.gz, say.
+    private static func innerTar(of archive: URL, into folder: URL) throws -> URL? {
+        let opened = try SevenZipArchive(url: archive)
+        guard let name = opened.formatName?.lowercased(), ["gzip", "xz", "bzip2"].contains(name) else { return nil }
+        let out = folder.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let extracted = try opened.extractAll(to: out)
+        guard extracted.count == 1, let tar = extracted.values.first,
+              (try? SevenZipArchive(url: tar).formatName?.lowercased()) == "tar" else { return nil }
+        return tar
+    }
+
+    /// The tar's size as its pass reports it, for the second pass to go on
+    /// from. Both passes report on the one thread that writes.
+    private final class TarTotal {
+        var bytes: UInt64 = 0
+    }
+
     public static func existingVolume(of destination: URL) -> URL? {
         let folder = destination.deletingLastPathComponent()
         let volume = "^" + NSRegularExpression.escapedPattern(for: destination.lastPathComponent) + "\\.[0-9]{3,}$"
@@ -769,7 +874,7 @@ extension SevenZipArchive {
 
                     // C strings the bridge borrows for the length of the call
                     func cString(_ s: String?) -> UnsafeMutablePointer<CChar>? { s.flatMap { strdup($0) } }
-                    let formatC = cString(options.format.rawValue)
+                    let formatC = cString(options.writerFormat ?? options.format.rawValue)
                     // Level 0 is Store. 7-Zip reads an explicit method first and
                     // would still compress with it, at its lightest setting.
                     let methodC = cString(options.level == 0 ? nil : options.method?.rawValue)

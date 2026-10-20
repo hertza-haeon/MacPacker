@@ -26,8 +26,9 @@ public enum CompressDestination {
     /// Never overwrites — a repeated drop of the same selection makes a new file.
     /// So does any volume of a split archive: "x.zip.001", "x.zip.002", …
     public static func unique(named name: String, in dir: URL) -> URL {
-        let stem = (name as NSString).deletingPathExtension
-        let ext = (name as NSString).pathExtension
+        // `x.tar.gz` is `x` with `tar.gz`: its second is `x 2.tar.gz`
+        let stem = CompressionOptions.Format.baseName(of: name)
+        let ext = String(name.dropFirst(stem.count + 1))
         var candidate = dir.appendingPathComponent(name)
         var counter = 2
         while taken(candidate) {

@@ -63,6 +63,8 @@ public final class ArchiveSaveOptions: ObservableObject {
             guard oldValue != format else { return }
             remembered[oldValue] = snapshot()
             apply(remembered[format] ?? Remembered())
+            // a level the new format does not offer — Store, for a compressed tar
+            if !levels.contains(level) { level = Remembered().level }
             // The split size belongs to the save, like the password, and stays —
             // unless the new format does not offer it.
             if let size = volumeSize, !volumeSizes.contains(size) { volumeSize = nil }
@@ -122,7 +124,9 @@ public final class ArchiveSaveOptions: ObservableObject {
 
     // MARK: What the current format and method offer
 
-    public var levels: [UInt32] { CompressionOptions.levels }
+    public var levels: [UInt32] { CompressionOptions.levels(for: format) }
+    /// Zip and 7z take a password; a compressed tar doesn't.
+    public var canEncrypt: Bool { CompressionOptions.canEncrypt(format) }
     public var methods: [Method] { CompressionOptions.methods(for: format) }
     public var dictionarySizes: [UInt64] { CompressionOptions.dictionarySizes(for: format, method: method) }
     public var wordSizes: [UInt32] { CompressionOptions.wordSizes(for: format, method: method) }
@@ -130,7 +134,8 @@ public final class ArchiveSaveOptions: ObservableObject {
     public var canEncryptFileNames: Bool { CompressionOptions.canEncryptFileNames(format) }
     public var hasSolidBlocks: Bool { CompressionOptions.hasSolidBlocks(format) }
     public var solidBlockSizes: [UInt64] { CompressionOptions.solidBlockSizes }
-    public var volumeSizes: [UInt64] { CompressionOptions.volumeSizes }
+    /// Empty for a format that is written whole only.
+    public var volumeSizes: [UInt64] { CompressionOptions.canSplit(format) ? CompressionOptions.volumeSizes : [] }
 
     /// At Store nothing is compressed, so method, dictionary, word size and solid
     /// blocks do nothing.
@@ -139,6 +144,8 @@ public final class ArchiveSaveOptions: ObservableObject {
     // MARK: Checks
 
     public var passwordProblem: PasswordProblem? {
+        // not asked for at all where the format takes none
+        guard canEncrypt else { return nil }
         if password.isEmpty && passwordConfirmation.isEmpty { return nil }
         if password != passwordConfirmation { return .mismatch }
         guard format == .zip,
@@ -160,13 +167,13 @@ public final class ArchiveSaveOptions: ObservableObject {
             level: level,
             method: compresses ? method : nil,
             solidMode: compresses && hasSolidBlocks && solidBlockSize == 0 ? false : nil,
-            password: password.isEmpty ? nil : password,
+            password: password.isEmpty || !canEncrypt ? nil : password,
             encryption: format == .zip ? encryption : nil,
             encryptFileNames: canEncryptFileNames && encryptFileNames,
             dictionarySize: compresses ? dictionarySize : nil,
             wordSize: compresses ? wordSize : nil,
             solidBlockSize: compresses && hasSolidBlocks && (solidBlockSize ?? 0) > 0 ? solidBlockSize : nil,
-            volumeSize: volumeSize,
+            volumeSize: volumeSizes.isEmpty ? nil : volumeSize,
             excludeDSStore: excludeDSStore)
     }
 

@@ -10,6 +10,52 @@ public struct CompressionOptions: Sendable {
         case sevenZ = "7z"
         /// Zip format (Deflate by default).
         case zip = "zip"
+        /// A tar compressed with gzip — written as a tar, then that compressed
+        /// alone, as 7-Zip's gzip, xz and bzip2 hold one file.
+        case tarGz = "tar.gz"
+        /// A tar compressed with xz.
+        case tarXz = "tar.xz"
+        /// A tar compressed with bzip2.
+        case tarBz2 = "tar.bz2"
+
+        /// For a compressed tar, the name 7-Zip's writer knows its compression
+        /// by; `nil` for a format that is an archive of its own.
+        public var tarCompression: String? {
+            switch self {
+            case .tarGz: "gzip"
+            case .tarXz: "xz"
+            case .tarBz2: "bzip2"
+            case .sevenZ, .zip: nil
+            }
+        }
+
+        public var isCompressedTar: Bool { tarCompression != nil }
+
+        /// The last part of the format's file extension, the one a file's type
+        /// goes by: `gz` for `tar.gz`.
+        public var lastExtension: String {
+            rawValue.split(separator: ".").last.map(String.init) ?? rawValue
+        }
+
+        /// The format a file of this name is written in, by its whole
+        /// extension: `x.tar.gz` is a `tarGz`, whose last extension, `gz`,
+        /// alone would say nothing. `nil` for any other name.
+        public static func compressedTar(named name: String) -> Format? {
+            let lowered = name.lowercased()
+            return allCases.first { $0.isCompressedTar && lowered.hasSuffix("." + $0.rawValue) }
+        }
+
+        /// `name` without the extension of any format the writer writes —
+        /// `x.tar.gz` and `x.zip` are both `x` — or else its last extension.
+        public static func baseName(of name: String) -> String {
+            let lowered = name.lowercased()
+            // the longest first: a `tar.gz` is not taken for a `gz`
+            for format in allCases.sorted(by: { $0.rawValue.count > $1.rawValue.count })
+            where lowered.hasSuffix("." + format.rawValue) && lowered.count > format.rawValue.count + 1 {
+                return String(name.dropLast(format.rawValue.count + 1))
+            }
+            return (name as NSString).deletingPathExtension
+        }
     }
 
     /// Compression method.
@@ -43,6 +89,20 @@ public struct CompressionOptions: Sendable {
     /// 7-Zip's levels, Store through Ultra.
     public static let levels: [UInt32] = [0, 1, 3, 5, 7, 9]
 
+    /// The levels `format` offers: a compressed tar has no Store — a plain
+    /// tar would be the archive for that.
+    public static func levels(for format: Format) -> [UInt32] {
+        format.isCompressedTar ? levels.filter { $0 > 0 } : levels
+    }
+
+    /// Whether `format` can be locked with a password: zip and 7z can, a tar
+    /// can't.
+    public static func canEncrypt(_ format: Format) -> Bool { !format.isCompressedTar }
+
+    /// Whether `format` can be split into volumes here: zip and 7z. A
+    /// compressed tar is written in two passes, and only whole.
+    public static func canSplit(_ format: Format) -> Bool { !format.isCompressedTar }
+
     /// What `method` stands for in `format`: the format's default for `nil`.
     public static func effectiveMethod(_ method: Method?, in format: Format) -> Method {
         method ?? (format == .zip ? .deflate : .lzma2)
@@ -53,6 +113,8 @@ public struct CompressionOptions: Sendable {
     /// Capped at 256 MB, since compressing takes roughly eleven times the
     /// dictionary in memory.
     public static func dictionarySizes(for format: Format, method: Method?) -> [UInt64] {
+        // a compressed tar takes its compression's own settings for the level
+        guard !format.isCompressedTar else { return [] }
         let mb: UInt64 = 1 << 20
         switch effectiveMethod(method, in: format) {
         case .lzma, .lzma2: return [64 << 10, 1 * mb, 4 * mb, 16 * mb, 32 * mb, 64 * mb, 128 * mb, 256 * mb]
@@ -65,6 +127,7 @@ public struct CompressionOptions: Sendable {
     /// Word sizes worth offering: fast bytes for LZMA and Deflate, the model
     /// order for PPMd. Empty where the method has nothing to choose.
     public static func wordSizes(for format: Format, method: Method?) -> [UInt32] {
+        guard !format.isCompressedTar else { return [] }
         switch effectiveMethod(method, in: format) {
         case .lzma, .lzma2: return [16, 32, 64, 128, 273]
         case .deflate: return [32, 64, 128, 258]
@@ -110,6 +173,8 @@ public struct CompressionOptions: Sendable {
         switch format {
         case .zip:    return [.deflate, .bzip2, .lzma, .ppmd]
         case .sevenZ: return [.lzma2, .lzma, .ppmd, .bzip2, .copy]
+        // the compression is the format's own: gzip, xz or bzip2
+        case .tarGz, .tarXz, .tarBz2: return []
         }
     }
 
@@ -153,6 +218,11 @@ public struct CompressionOptions: Sendable {
     /// Leave out the `.DS_Store` files a write adds — Finder's, not something
     /// anyone means to archive. Entries the archive holds already stay.
     public var excludeDSStore: Bool
+
+    /// The format 7-Zip's writer is handed, when it is not `format`'s own name:
+    /// the two passes of a compressed tar write a `tar`, then a `gzip`, `xz` or
+    /// `bzip2`.
+    var writerFormat: String? = nil
 
     /// Whether this writes an encrypted archive.
     public var encrypts: Bool { !(password ?? "").isEmpty }

@@ -1014,7 +1014,8 @@ extension ArchiveState {
         // name is which format's is the catalog's to say — a `jar` is a zip. A
         // name that says nothing is written as a new archive starts out. For a
         // Save in place neither matters: the writer asks 7-Zip what the archive is.
-        let format = catalog.writtenFormat(forExtension: target.pathExtension) ?? .newArchive
+        let format = CompressionOptions.Format.compressedTar(named: target.lastPathComponent)
+            ?? catalog.writtenFormat(forExtension: target.pathExtension) ?? .newArchive
         let saver = ArchiveSaver(
             source: url,
             // From the file's name, by the catalog's split patterns — not by

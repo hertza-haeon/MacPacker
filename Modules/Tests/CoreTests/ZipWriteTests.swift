@@ -24,6 +24,11 @@ func makeTempDir() throws -> URL {
     return url
 }
 
+/// The formats with archives of their own, which most write tests are about:
+/// what they check — macOS metadata, folder icons, updates in place, passwords,
+/// volumes — a compressed tar doesn't do (CompressedTarWriteTests has its own).
+let zipAnd7z = CompressionOptions.Format.allCases.filter { !$0.isCompressedTar }
+
 /// Runs a CLI tool and returns stdout. Used to build/verify fixtures with
 /// the system zip tools so our writer is verified independently.
 @discardableResult
@@ -140,6 +145,11 @@ func systemZipList(_ zip: URL) throws -> Set<String> {
 /// `7z l -slt` for a 7z — with duplicates kept, and with the sidecars our reader
 /// hides. A folder ends in a slash in a zip only.
 func systemEntries(_ archive: URL) throws -> [String] {
+    // a compressed tar: macOS's tar reads through its compression and its tar
+    if CompressionOptions.Format.compressedTar(named: archive.lastPathComponent) != nil {
+        return try systemTar(["-tf", archive.path]).split(separator: "\n")
+            .map { $0.hasSuffix("/") ? String($0.dropLast()) : String($0) }
+    }
     guard try archiveFormat(of: archive) == "7z" else { return try systemZipEntries(archive) }
     // a block of properties per entry, after the dashed line that ends the archive's own
     let listing = try sevenZip(sevenZipTool(), ["l", "-slt", archive.path])
@@ -218,7 +228,7 @@ func extractWithOurEngine(_ archive: URL, to destination: URL) async throws {
 extension AllCoreTests {
     struct ZipWriteTests {
 
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func createNewArchiveWithFilesAndFolder(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -387,7 +397,7 @@ extension AllCoreTests {
             return payload
         }
 
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func reportsProgressWhileWriting(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -552,7 +562,7 @@ extension AllCoreTests {
             state.entries.values.first { $0.virtualPath == path }
         }
 
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func createNewArchiveViaState(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -594,7 +604,7 @@ extension AllCoreTests {
         /// given, and which names are which format's is the catalog's to say:
         /// every extension it lists for a format the writer writes — `jar`, `apk`
         /// and `cbz` for zip — comes out in that format.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func aSaveWithoutOptionsWritesTheFormatTheCatalogHasItsNameUnder(
             _ format: CompressionOptions.Format
         ) async throws {
@@ -764,7 +774,7 @@ extension AllCoreTests {
             #expect(state.hasPendingChanges)
         }
 
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func mutationsRefusedWhileSaving(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -1006,7 +1016,7 @@ extension AllCoreTests {
         /// made through its listing handed those numbers to 7-Zip's writer:
         /// deleting `helper` removed the sidecar of `icon.png`. An archive XAD
         /// opened is read-only.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func anArchiveXADOpenedCannotBeChanged(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -1064,7 +1074,7 @@ extension AllCoreTests {
         /// the outer archive's `a.txt`, since both were entry 0. The row of the
         /// inner archive is the outer one's, and goes alone. Whichever of the two
         /// is a zip and whichever a 7z.
-        @Test(arguments: CompressionOptions.Format.allCases, CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z, zipAnd7z)
         func anArchiveOpenedInsideIsNotChangedThroughTheOuterOne(
             outer outerFormat: CompressionOptions.Format, inner innerFormat: CompressionOptions.Format
         ) async throws {
@@ -1151,7 +1161,7 @@ extension AllCoreTests {
         /// The open one stays on the engine that read it and numbered its entries:
         /// 7-Zip extracts by number, and would have taken XAD's number for `helper`
         /// for the sidecar of `icon.png`.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func anOpenArchiveKeepsTheEngineThatReadIt(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -1201,7 +1211,7 @@ extension AllCoreTests {
         // which is the behaviour under test rather than a way to test it. What
         // the system tool is asked instead is whether the entries are in the
         // archive at all, which our reader hides by design.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func createdArchiveKeepsExtendedAttributes(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -1258,7 +1268,7 @@ extension AllCoreTests {
         // Driven through ArchiveState rather than the writer directly: adding a
         // folder is what a user does, and the folder's own URL reaching the entry
         // is the part that was missing.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func createdArchiveKeepsACustomFolderIcon(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -1326,7 +1336,7 @@ extension AllCoreTests {
         // AppleDouble has for it. macOS mirrors that bit onto UF_HIDDEN when the
         // attribute is written, so the flag itself comes back too — asserted here,
         // because it is that mirroring the fix relies on.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func createdArchiveKeepsAFileHidden(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -1366,7 +1376,7 @@ extension AllCoreTests {
         // at. Inside a framework or an .app the version symlinks are what hold the
         // bundle together, and extraction has restored links since #121 — so this
         // was the one direction that still flattened them.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func createdArchiveStoresSymlinksAsLinks(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -1536,7 +1546,7 @@ extension AllCoreTests {
         // A folder is the subject rather than a file because it isolates the
         // metadata path: a directory entry stores no contents, so nothing else in
         // the write can fail first and pass the test for the wrong reason.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func createdArchiveReportsMetadataItCouldNotRead(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             let folder = dir.appendingPathComponent("Unreadable")
@@ -1564,7 +1574,7 @@ extension AllCoreTests {
         // an empty FinderInfo whether or not there was anything to say, so a naive
         // implementation roughly doubles the entry count of every archive anyone
         // ever makes, to store nothing.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func createdArchiveAddsNoSidecarForOrdinaryFiles(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -1861,7 +1871,7 @@ extension AllCoreTests {
             }
         }
 
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func saveAsAppliesPendingChanges(_ format: CompressionOptions.Format) throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -1943,7 +1953,7 @@ extension AllCoreTests {
         }
 
         // Save (in place) is an update on purpose: what it doesn't touch it copies as is.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func saveInPlaceLeavesUntouchedEntriesAsTheyWere(_ format: CompressionOptions.Format) throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -2136,7 +2146,7 @@ struct WriteCase: Sendable, CustomTestStringConvertible {
     /// Each format, Automatic plus each method it offers, each of 7-Zip's levels —
     /// built from the same list the panel reads, so a method added there is under
     /// test without anyone writing a case for it.
-    static let all: [WriteCase] = CompressionOptions.Format.allCases.flatMap { format in
+    static let all: [WriteCase] = zipAnd7z.flatMap { format in
         ([nil] + CompressionOptions.methods(for: format)).flatMap { method in
             [UInt32(0), 1, 3, 5, 7, 9].map { WriteCase(format: format, method: method, level: $0) }
         }

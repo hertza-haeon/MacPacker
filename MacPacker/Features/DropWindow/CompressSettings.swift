@@ -22,7 +22,7 @@ enum CompressDropIcon {
 }
 
 /// Borderless: in a small glass panel the button chrome is louder than the choice.
-/// The label is only ever "zip" or "7z", never translated, so its width is fixed.
+/// The label is a format's own name — "zip", "7z", "tar.gz"… — never translated.
 struct CompressFormatMenu: View {
     @ObservedObject var options: ArchiveSaveOptions
 
@@ -31,6 +31,10 @@ struct CompressFormatMenu: View {
             Picker(selection: $options.format) {
                 Text(verbatim: "zip").tag(CompressionOptions.Format.zip)
                 Text(verbatim: "7z").tag(CompressionOptions.Format.sevenZ)
+                Divider()
+                Text(verbatim: "tar.gz").tag(CompressionOptions.Format.tarGz)
+                Text(verbatim: "tar.xz").tag(CompressionOptions.Format.tarXz)
+                Text(verbatim: "tar.bz2").tag(CompressionOptions.Format.tarBz2)
             } label: {
                 // No label at all. Two entries called "zip" and "7z" need no
                 // heading above them, and a string that is never rendered still

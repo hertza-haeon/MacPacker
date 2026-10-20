@@ -103,76 +103,85 @@ struct SaveOptionsRows: View {
                     .fixedSize()
                     .accessibilityIdentifier("saveOptions.level")
             }
-            row(Text(.archiveSaveSplitIntoVolumes)) {
-                VolumeControl(options: options)
-                    .fixedSize()
-                    .accessibilityIdentifier("saveOptions.volume")
-            }
-
-            Divider()
-
-            row(Text(.commonPassword)) {
-                SecureField(text: $options.password) { EmptyView() }
-                    .labelsHidden()
-                    .frame(width: fieldWidth)
-                    .accessibilityIdentifier("saveOptions.password")
-            }
-            row(Text(.archiveSavePasswordVerify)) {
-                SecureField(text: $options.passwordConfirmation) { EmptyView() }
-                    .labelsHidden()
-                    .frame(width: fieldWidth)
-                    .accessibilityIdentifier("saveOptions.passwordVerify")
-            }
-            // zip can still use ZipCrypto for old tools; 7z is AES-256 only
-            if options.encryptions.count > 1 {
-                row(Text(.archiveSaveEncryptionMethod)) {
-                    EncryptionControl(options: options)
+            // a compressed tar is written whole
+            if !options.volumeSizes.isEmpty {
+                row(Text(.archiveSaveSplitIntoVolumes)) {
+                    VolumeControl(options: options)
                         .fixedSize()
-                        .accessibilityIdentifier("saveOptions.encryptionMethod")
+                        .accessibilityIdentifier("saveOptions.volume")
                 }
             }
-            // a zip always lists its file names in the clear
-            if options.canEncryptFileNames {
-                row(Text(.archiveSaveEncryptFileNames)) {
-                    Toggle(isOn: $options.encryptFileNames) { EmptyView() }
+
+            // a tar takes no password
+            if options.canEncrypt {
+                Divider()
+
+                row(Text(.commonPassword)) {
+                    SecureField(text: $options.password) { EmptyView() }
                         .labelsHidden()
-                        .accessibilityIdentifier("saveOptions.encryptNames")
+                        .frame(width: fieldWidth)
+                        .accessibilityIdentifier("saveOptions.password")
                 }
+                row(Text(.archiveSavePasswordVerify)) {
+                    SecureField(text: $options.passwordConfirmation) { EmptyView() }
+                        .labelsHidden()
+                        .frame(width: fieldWidth)
+                        .accessibilityIdentifier("saveOptions.passwordVerify")
+                }
+                // zip can still use ZipCrypto for old tools; 7z is AES-256 only
+                if options.encryptions.count > 1 {
+                    row(Text(.archiveSaveEncryptionMethod)) {
+                        EncryptionControl(options: options)
+                            .fixedSize()
+                            .accessibilityIdentifier("saveOptions.encryptionMethod")
+                    }
+                }
+                // a zip always lists its file names in the clear
+                if options.canEncryptFileNames {
+                    row(Text(.archiveSaveEncryptFileNames)) {
+                        Toggle(isOn: $options.encryptFileNames) { EmptyView() }
+                            .labelsHidden()
+                            .accessibilityIdentifier("saveOptions.encryptNames")
+                    }
+                }
+                encryptionNote
             }
-            encryptionNote
 
-            Divider()
+            // a compressed tar's compression is the format's own, set by the level
+            if !options.methods.isEmpty {
+                Divider()
 
-            Group {
-                row(Text(.archiveSaveMethod)) {
-                    MethodControl(options: options)
-                        .fixedSize()
-                        .accessibilityIdentifier("saveOptions.method")
-                }
-                if !options.dictionarySizes.isEmpty {
-                    row(Text(.archiveSaveDictionarySize)) {
-                        DictionaryControl(options: options)
+                Group {
+                    row(Text(.archiveSaveMethod)) {
+                        MethodControl(options: options)
                             .fixedSize()
-                            .accessibilityIdentifier("saveOptions.dictionary")
+                            .accessibilityIdentifier("saveOptions.method")
+                    }
+                    if !options.dictionarySizes.isEmpty {
+                        row(Text(.archiveSaveDictionarySize)) {
+                            DictionaryControl(options: options)
+                                .fixedSize()
+                                .accessibilityIdentifier("saveOptions.dictionary")
+                        }
+                    }
+                    if !options.wordSizes.isEmpty {
+                        row(Text(.archiveSaveWordSize)) {
+                            WordSizeControl(options: options)
+                                .fixedSize()
+                                .accessibilityIdentifier("saveOptions.wordSize")
+                        }
+                    }
+                    if options.hasSolidBlocks {
+                        row(Text(.archiveSaveSolidBlockSize)) {
+                            SolidControl(options: options)
+                                .fixedSize()
+                                .accessibilityIdentifier("saveOptions.solid")
+                        }
                     }
                 }
-                if !options.wordSizes.isEmpty {
-                    row(Text(.archiveSaveWordSize)) {
-                        WordSizeControl(options: options)
-                            .fixedSize()
-                            .accessibilityIdentifier("saveOptions.wordSize")
-                    }
-                }
-                if options.hasSolidBlocks {
-                    row(Text(.archiveSaveSolidBlockSize)) {
-                        SolidControl(options: options)
-                            .fixedSize()
-                            .accessibilityIdentifier("saveOptions.solid")
-                    }
-                }
+                // at Store nothing is compressed, so these do nothing
+                .disabled(!options.compresses)
             }
-            // at Store nothing is compressed, so these do nothing
-            .disabled(!options.compresses)
 
             row(Text(.archiveSaveExcludeDsStoreFiles)) {
                 Toggle(isOn: $options.excludeDSStore) { EmptyView() }
@@ -455,16 +464,18 @@ enum ArchiveSavePanel {
         // The name keeps its base and takes the format's extension; the panel
         // then holds the name to it, so a zip is never written as x.7z.
         let useFormat = { (format: ArchiveSaveOptions.Format, base: String) in
-            panel.allowedContentTypes = [UTType(filenameExtension: format.rawValue) ?? .data]
+            // a file's type goes by its last extension: `gz` for `tar.gz`
+            panel.allowedContentTypes = [UTType(filenameExtension: format.lastExtension) ?? .data]
             panel.nameFieldStringValue = base + "." + format.rawValue
         }
         let baseName = state.name ?? String(localized: .commonNewArchive)
-        useFormat(options.format, (baseName as NSString).deletingPathExtension)
+        useFormat(options.format, ArchiveSaveOptions.Format.baseName(of: baseName))
 
         let accessory = NSHostingView(rootView: ArchiveSavePanelAccessoryView(
             options: options,
             onFormatChange: { newFormat in
-                useFormat(newFormat, (panel.nameFieldStringValue as NSString).deletingPathExtension)
+                // the whole of the old format's extension goes: `x.tar.gz` is `x`
+                useFormat(newFormat, ArchiveSaveOptions.Format.baseName(of: panel.nameFieldStringValue))
             },
             onOptions: { [weak panel] in
                 guard let panel else { return }

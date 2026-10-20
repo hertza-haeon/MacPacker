@@ -220,7 +220,7 @@ struct MethodCase: Sendable, CustomTestStringConvertible {
     /// nothing, and PPMd's smallest is 4 MB.
     var inputSize: Int { effective == .ppmd ? 6_000_000 : 320_000 }
 
-    static let all: [MethodCase] = CompressionOptions.Format.allCases.flatMap { format in
+    static let all: [MethodCase] = zipAnd7z.flatMap { format in
         ([nil] + CompressionOptions.methods(for: format)).map { MethodCase(format: format, method: $0) }
     }
     static let withDictionary = all.filter { !$0.dictionarySizes.isEmpty }
@@ -251,7 +251,7 @@ extension AllCoreTests {
         /// And it has to read what the writer writes, cipher included. A build too
         /// old for AES would pass every archive back as unreadable, which would
         /// make each check against it worthless.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func theOracleReadsWhatTheWriterWrites(_ format: CompressionOptions.Format) throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -414,7 +414,7 @@ extension AllCoreTests {
         }
 
         /// No password, or an empty one, writes no encryption at all.
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func anEmptyPasswordEncryptsNothing(_ format: CompressionOptions.Format) throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -718,7 +718,7 @@ extension AllCoreTests {
 
         /// 250 KB that nothing shrinks, in 64 KB volumes: four of them, the first
         /// three exactly full.
-        @MainActor @Test(arguments: CompressionOptions.Format.allCases)
+        @MainActor @Test(arguments: zipAnd7z)
         func volumesSplitAtTheSizeAskedFor(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -769,7 +769,7 @@ extension AllCoreTests {
             }
         }
 
-        @Test(arguments: CompressionOptions.Format.allCases)
+        @Test(arguments: zipAnd7z)
         func encryptedVolumesNeedThePassword(_ format: CompressionOptions.Format) throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }

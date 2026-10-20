@@ -996,7 +996,7 @@ extension AllCoreTests {
         //
         // In a zip and in a 7z, and both ways a removal is written: by Save, which
         // updates the archive in place, and by Save As, which writes it again.
-        @Test(arguments: CompressionOptions.Format.allCases, [true, false])
+        @Test(arguments: zipAnd7z, [true, false])
         func deletingAFileDeletesItsSidecar(from format: CompressionOptions.Format, inPlace: Bool) async throws {
             let fm = FileManager.default
             let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)

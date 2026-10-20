@@ -95,8 +95,7 @@ struct FormatSettingsView: View {
             isChangingDefaults = false
             guard !errors.isEmpty else { return }
             let alert = NSAlert()
-            // MacPacker Lab: English only, kept out of the string catalog
-            alert.messageText = "Some formats could not be changed"
+            alert.messageText = String(localized: .labSettingsDefaultsNotChanged)
             alert.informativeText = errors.map(\.localizedDescription).joined(separator: "\n")
             alert.alertStyle = .warning
             alert.runModal()
@@ -120,13 +119,13 @@ struct FormatSettingsView: View {
         if others.typeCount > 0 {
             let name = Bundle.main.displayName
             let alert = NSAlert()
-            // MacPacker Lab: English only, kept out of the string catalog
-            alert.messageText = "Set \(name) as default?"
-            alert.informativeText = others.typeCount == 1
-                ? "1 of these file types opens with \(others.names.formatted(.list(type: .and))) now. macOS may ask you to confirm it, with a “Use \(name)” button."
-                : "\(others.typeCount) of these file types open with \(others.names.formatted(.list(type: .and))) now. macOS may ask you to confirm each of them, one by one, with a “Use \(name)” button."
-            alert.addButton(withTitle: "Continue")
-            alert.addButton(withTitle: "Cancel")
+            alert.messageText = String(localized: .labSettingsSetAsDefaultQuestion(name))
+            // said as a count rather than in a sentence about it, which every
+            // language would need plural forms for
+            alert.informativeText = String(localized: .labSettingsSetAsDefaultWarning(
+                others.typeCount, others.names.formatted(.list(type: .and)), name))
+            alert.addButton(withTitle: String(localized: .labCommonContinue))
+            alert.addButton(withTitle: String(localized: .labCommonCancel))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
         changeDefaults(types, take: true)
@@ -160,8 +159,8 @@ struct FormatSettingsView: View {
     var body: some View {
         Form {
             Section {
-                SettingRow(title: Bundle.main.displayName,
-                           detail: "Opens \(rows.filter(\.defaultOpen).count) of \(rows.count) formats.") {
+                SettingRow(verbatim: Bundle.main.displayName,
+                           detail: .labSettingsDefaultAppCount(rows.filter(\.defaultOpen).count, rows.count)) {
                     HStack(spacing: 8) {
                         if isChangingDefaults {
                             ProgressView()
@@ -170,23 +169,23 @@ struct FormatSettingsView: View {
                         Button {
                             makeDefaultForArchives()
                         } label: {
-                            Text(verbatim: "Set \(Bundle.main.displayName) as default")
+                            Text(.labSettingsSetAsDefault(Bundle.main.displayName))
                         }
                         .disabled(isChangingDefaults)
-                        .help(Text(verbatim: "Opens every archive and compressed format with \(Bundle.main.displayName). Disk images, installers, programs and help files keep their apps; switch those on below one by one."))
+                        .help(Text(.labSettingsSetAsDefaultHelp(Bundle.main.displayName)))
                     }
                 }
             } header: {
-                Text(verbatim: "Default App")
+                Text(.labSettingsSectionDefaultApp)
             }
 
             Section {
-                SettingToggle(title: "Automatic engine selection",
-                              detail: "Picks an engine per archive, and tries another if the first can’t read it.",
+                SettingToggle(title: .labSettingsAutomaticEngine,
+                              detail: .labSettingsAutomaticEngineDetail,
                               isOn: automaticBinding)
             } header: {
                 HStack {
-                    Text(verbatim: "Engines")
+                    Text(.labSettingsSectionEngines)
                     Spacer()
                     Button {
                         showEngineInfo.toggle()
@@ -201,36 +200,43 @@ struct FormatSettingsView: View {
             }
 
             Section {
-                TextField(text: $search, prompt: Text(verbatim: "Search formats")) {
-                    Text(verbatim: "Search")
+                TextField(text: $search, prompt: Text(.labSettingsSearchFormats)) {
+                    Text(.labSettingsSearch)
                 }
                 .labelsHidden()
 
                 HStack(spacing: 8) {
-                    Text(verbatim: "Open").frame(width: Self.switchColumnWidth, alignment: .leading)
-                    Text(verbatim: "Format")
+                    // a longer word in another language shrinks to its column
+                    Text(.labSettingsColumnOpen).frame(width: Self.switchColumnWidth, alignment: .leading)
+                    Text(.labSettingsColumnFormat)
                     Spacer()
-                    Text(verbatim: "Engine").frame(width: Self.engineColumnWidth, alignment: .leading)
+                    Text(.labSettingsColumnEngine).frame(width: Self.engineColumnWidth, alignment: .leading)
                 }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
                 ForEach(shownRows) { row in
                     HStack(spacing: 8) {
-                        defaultToggle(identifier: row.id, defaultOpen: row.defaultOpen, types: row.types)
+                        defaultToggle(identifier: row.id, name: row.name, defaultOpen: row.defaultOpen, types: row.types)
                             .frame(width: Self.switchColumnWidth, alignment: .leading)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(row.name)
-                            Text(row.defaultOpen || row.opensWith == nil
-                                 ? row.extensions
-                                 : "\(row.extensions) · opens with \(row.opensWith ?? "")")
+                            Group {
+                                if !row.defaultOpen, let opensWith = row.opensWith {
+                                    Text(.labSettingsOpensWith(row.extensions, opensWith))
+                                } else {
+                                    Text(row.extensions)
+                                }
+                            }
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Group {
                             if isAutomatic {
-                                Text(verbatim: "Automatic")
+                                Text(.labSettingsEngineAutomatic)
                                     .foregroundStyle(.secondary)
                             } else {
                                 supportedPicker(identifier: row.id, selectedEngine: row.selectedEngine,
@@ -241,7 +247,7 @@ struct FormatSettingsView: View {
                     }
                 }
             } header: {
-                Text(verbatim: "All Formats")
+                Text(.labSettingsSectionAllFormats)
             }
         }
         .formStyle(.grouped)
@@ -290,7 +296,7 @@ struct FormatSettingsView: View {
     }
 
     @ViewBuilder
-    func defaultToggle(identifier: String, defaultOpen: Bool, types: [UTType]) -> some View {
+    func defaultToggle(identifier: String, name: String, defaultOpen: Bool, types: [UTType]) -> some View {
         let binding = Binding<Bool>(
             get: { defaultOpen },
             set: { newValue in
@@ -301,11 +307,12 @@ struct FormatSettingsView: View {
             }
         )
 
-        Toggle(isOn: binding, label: { Text(verbatim: "") })
+        // hidden, but what VoiceOver names the switch by
+        Toggle(isOn: binding, label: { Text(verbatim: name) })
             .toggleStyle(.switch)
             .controlSize(.mini)
             .labelsHidden()
-            .help(Text(verbatim: "On: \(Bundle.main.displayName) opens this format. Off: the app that opened it before does."))
+            .help(Text(.labSettingsFormatSwitchHelp(Bundle.main.displayName)))
             .disabled(isChangingDefaults || types.isEmpty)
     }
     

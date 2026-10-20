@@ -36,7 +36,7 @@ struct AboutSettingsView: View {
             Text(Bundle.main.displayName)
                 .font(.title2.weight(.medium))
                 .padding(.top, 8)
-            Text(verbatim: "Version \(Bundle.main.appVersionLong) (\(Bundle.main.appBuild))")
+            Text(.labSettingsVersion(Bundle.main.appVersionLong, Bundle.main.appBuild))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .padding(.top, 2)
@@ -50,7 +50,7 @@ struct AboutSettingsView: View {
                 Button {
                     openURL(Constants.changelogURL)
                 } label: {
-                    Text(verbatim: "What’s New")
+                    Text(.labSettingsWhatsNew)
                 }
                 Button {
                     openURL(Constants.homepageURL)

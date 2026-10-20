@@ -16,41 +16,41 @@ struct AdvancedSettingsView: View {
     var body: some View {
         Form {
             Section {
-                SettingRow(title: "Cache folder",
-                           detail: "Temporary copies made while opening and previewing archives.") {
+                SettingRow(title: .labSettingsCacheFolder,
+                           detail: .labSettingsCacheFolderDetail) {
                     HStack(spacing: 6) {
                         Button {
                             if let url = applicationSupportDirectory {
                                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
                             }
                         } label: {
-                            Text(verbatim: "Show in Finder")
+                            Text(.labSettingsShowInFinder)
                         }
                         .help(.settingsShowApplicationSupportFolder)
 
                         Button {
                             CacheCleaner().clean()
                         } label: {
-                            Text(verbatim: "Clear")
+                            Text(.labSettingsClear)
                         }
                         .help(.settingsClearCacheHint)
                     }
                     .disabled(applicationSupportDirectory == nil)
                 }
             } header: {
-                Text(verbatim: "Cache")
+                Text(.labSettingsSectionCache)
             }
 
             Section {
-                SettingRow(title: "Logs from the last hour", detail: "For a bug report.") {
+                SettingRow(title: .labSettingsLogs, detail: .labSettingsLogsDetail) {
                     Button {
                         exportLogs()
                     } label: {
-                        Text(verbatim: "Export…")
+                        Text(.labSettingsExport)
                     }
                 }
             } header: {
-                Text(verbatim: "Troubleshooting")
+                Text(.labSettingsSectionTroubleshooting)
             }
         }
         .formStyle(.grouped)

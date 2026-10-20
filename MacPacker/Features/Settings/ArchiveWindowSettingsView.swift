@@ -24,27 +24,27 @@ struct ArchiveWindowSettingsView: View {
                 windowPreview
                     // a picture of what the controls set
                     .accessibilityHidden(true)
-                SettingToggle(title: "Show parent folder (“..”)", isOn: $showParentRow)
+                SettingToggle(title: .labSettingsShowParentRow, isOn: $showParentRow)
                 Picker(selection: $breadcrumbPosition) {
-                    Text(verbatim: "Top").tag(BreadcrumbPosition.top)
-                    Text(verbatim: "Bottom").tag(BreadcrumbPosition.bottom)
-                    Text(verbatim: "Hidden").tag(BreadcrumbPosition.none)
+                    Text(.labSettingsPathBarTop).tag(BreadcrumbPosition.top)
+                    Text(.labSettingsPathBarBottom).tag(BreadcrumbPosition.bottom)
+                    Text(.labSettingsPathBarHidden).tag(BreadcrumbPosition.none)
                 } label: {
-                    SettingLabel(title: "Path bar")
+                    SettingLabel(title: .labSettingsPathBar)
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
             } header: {
-                Text(verbatim: "Preview")
+                Text(.labSettingsSectionPreview)
             }
 
             Section {
-                SettingToggle(title: "Packed Size", isOn: $showCompressedSize)
-                SettingToggle(title: "Size", isOn: $showUncompressedSize)
-                SettingToggle(title: "Date Modified", isOn: $showModificationDate)
-                SettingToggle(title: "Permissions", isOn: $showPermissions)
+                SettingToggle(title: .columnPackedSize, isOn: $showCompressedSize)
+                SettingToggle(title: .columnSize, isOn: $showUncompressedSize)
+                SettingToggle(title: .columnDateModified, isOn: $showModificationDate)
+                SettingToggle(title: .columnPermissions, isOn: $showPermissions)
             } header: {
-                Text(verbatim: "Columns")
+                Text(.labSettingsSectionColumns)
             }
         }
         .formStyle(.grouped)

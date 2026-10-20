@@ -19,40 +19,40 @@ struct ExtractionSettingsView: View {
     var body: some View {
         Form {
             Section {
-                SettingToggle(title: "Extract next to the archive", isOn: $extractNextToArchive)
+                SettingToggle(title: .labSettingsExtractNextTo, isOn: $extractNextToArchive)
                 // only means something when the one above is on
-                SettingToggle(title: "Close the window afterwards", isOn: $closeWindowAfterExtraction)
+                SettingToggle(title: .labSettingsCloseWindowAfter, isOn: $closeWindowAfterExtraction)
                     .padding(.leading, 20)
                     .disabled(!extractNextToArchive)
             } header: {
-                Text(verbatim: "Destination")
+                Text(.labSettingsSectionDestination)
             }
 
             Section {
-                SettingToggle(title: "Smart extraction",
-                              detail: "Loose items get a folder; a single folder isn’t nested again.",
+                SettingToggle(title: .labSettingsSmartExtraction,
+                              detail: .labSettingsSmartExtractionDetail,
                               isOn: $smartExtraction)
                 Picker(selection: $nameClash) {
-                    Text(.settingsNameClashKeepBoth).tag(NameClash.keepBoth)
-                    Text(.settingsNameClashReplace).tag(NameClash.replace)
-                    Text(.settingsNameClashReplaceToTrash).tag(NameClash.replaceToTrash)
+                    Text(.labSettingsNameClashKeepBoth).tag(NameClash.keepBoth)
+                    Text(.labSettingsNameClashReplace).tag(NameClash.replace)
+                    Text(.labSettingsNameClashReplaceToTrash).tag(NameClash.replaceToTrash)
                 } label: {
-                    SettingLabel(title: "If an item already exists")
+                    SettingLabel(title: .labSettingsNameClash)
                 }
             } header: {
-                Text(verbatim: "Contents")
+                Text(.labSettingsSectionContents)
             } footer: {
-                Text(verbatim: "Keep both gives the new item a number, as in “photo (2).jpg”.")
+                Text(.labSettingsNameClashFooter)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section {
-                SettingToggle(title: "Move the archive to the Trash",
-                              detail: "After a complete extraction only, every part of a split archive included.",
+                SettingToggle(title: .labSettingsTrashArchive,
+                              detail: .labSettingsTrashArchiveDetail,
                               isOn: $trashArchiveAfterExtraction)
             } header: {
-                Text(verbatim: "Afterwards")
+                Text(.labSettingsSectionAfterwards)
             }
         }
         .formStyle(.grouped)

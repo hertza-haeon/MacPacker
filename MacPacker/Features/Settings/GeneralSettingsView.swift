@@ -20,24 +20,24 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section {
-                SettingToggle(title: "Open archives in tabs", isOn: $openArchivesInTabs)
-                SettingToggle(title: "Quit when the last window closes", isOn: $quitOnLastWindowClosed)
+                SettingToggle(title: .labSettingsOpenInTabs, isOn: $openArchivesInTabs)
+                SettingToggle(title: .labSettingsQuitOnLastWindow, isOn: $quitOnLastWindowClosed)
             } header: {
-                Text(verbatim: "Windows")
+                Text(.labSettingsSectionWindows)
             }
 
             Section {
-                SettingToggle(title: "Show in menu bar", isOn: $showMenuBarItem)
+                SettingToggle(title: .labSettingsShowInMenuBar, isOn: $showMenuBarItem)
             } header: {
-                Text(verbatim: "Menu Bar")
+                Text(.labSettingsSectionMenuBar)
             }
 
             Section {
-                SettingToggle(title: "Remember recent archives",
-                              detail: "Turning this off clears the list.",
+                SettingToggle(title: .labSettingsRememberRecent,
+                              detail: .labSettingsRememberRecentDetail,
                               isOn: $rememberRecentArchives)
             } header: {
-                Text(verbatim: "History")
+                Text(.labSettingsSectionHistory)
             }
         }
         .formStyle(.grouped)

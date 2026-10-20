@@ -36,7 +36,7 @@ struct IntegrationSettingsView: View {
                             Circle()
                                 .fill(isFinderSyncEnabled ? Color.green : Color.secondary)
                                 .frame(width: 6, height: 6)
-                            Text(verbatim: isFinderSyncEnabled ? "On" : "Off")
+                            Text(isFinderSyncEnabled ? LocalizedStringResource.labSettingsExtensionOn : .labSettingsExtensionOff)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -45,29 +45,29 @@ struct IntegrationSettingsView: View {
                     Button {
                         FIFinderSyncController.showExtensionManagementInterface()
                     } label: {
-                        Text(verbatim: "Manage…")
+                        Text(.labSettingsManage)
                     }
                 }
             } header: {
-                Text(verbatim: "Finder Extension")
+                Text(.labSettingsSectionFinderExtension)
             }
 
             Section {
                 FinderMenuCascadedToggle()
             } header: {
-                Text(verbatim: "Context Menu")
+                Text(.labSettingsSectionContextMenu)
             }
 
             Section {
                 ForEach(Self.openAndExtract, id: \.self) { FinderMenuItemToggle(item: $0) }
             } header: {
-                Text(verbatim: "Open & Extract")
+                Text(.labSettingsSectionOpenExtract)
             }
 
             Section {
                 ForEach(Self.compress, id: \.self) { FinderMenuItemToggle(item: $0) }
             } header: {
-                Text(verbatim: "Compress")
+                Text(.labSettingsSectionCompress)
             }
         }
         .formStyle(.grouped)
@@ -104,18 +104,18 @@ private struct FinderMenuItemToggle: View {
 
     /// Mirrors the wording of the menu entry itself, with the parts that depend
     /// on the selection written as placeholders — the same way 7-Zip lists them.
-    private var title: String {
+    private var title: LocalizedStringResource {
         switch item {
-        case .open: "Open archive"
-        case .extractHere: "Extract here"
-        case .extractToFolder: "Extract to “name”"
-        case .extractToChosenFolder: "Extract to…"
-        case .addToArchive: "Add to archive…"
-        case .compressToZip: "Compress to “name”.zip"
-        case .compressTo7z: "Compress to “name”.7z"
-        case .compressToDatedZip: "Compress to zip with date and time"
-        case .compressEachSeparately: "Compress each item separately"
-        case .compressFolderContents: "Compress a folder’s contents"
+        case .open: .labFinderOpenArchive
+        case .extractHere: .labFinderExtractHere
+        case .extractToFolder: .labFinderExtractToName
+        case .extractToChosenFolder: .labFinderExtractTo
+        case .addToArchive: .labFinderAddToArchive
+        case .compressToZip: .labFinderCompressToZip
+        case .compressTo7z: .labFinderCompressToSevenZip
+        case .compressToDatedZip: .labFinderCompressToDatedZip
+        case .compressEachSeparately: .labFinderCompressEach
+        case .compressFolderContents: .labFinderCompressContents
         }
     }
 }
@@ -125,7 +125,7 @@ private struct FinderMenuCascadedToggle: View {
     private var isCascaded: Bool = true
 
     var body: some View {
-        SettingToggle(title: "Group in a “\(Constants.appName)” submenu", isOn: $isCascaded)
+        SettingToggle(title: .labSettingsGroupInSubmenu(Constants.appName), isOn: $isCascaded)
     }
 }
 

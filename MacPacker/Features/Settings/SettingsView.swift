@@ -9,9 +9,6 @@ import Foundation
 import SwiftUI
 
 /// The panes of the Settings window, in sidebar order.
-///
-/// MacPacker Lab: the titles are English only and kept out of the string
-/// catalog (`String`, not `LocalizedStringResource`).
 enum SettingsViewTab: Int, CaseIterable, Identifiable {
     case general
     case archiveWindow
@@ -25,16 +22,18 @@ enum SettingsViewTab: Int, CaseIterable, Identifiable {
 
     var id: Int { self.rawValue }
 
+    /// A `String`, for the sidebar's width is measured from it. Finder is
+    /// named as macOS names it in every language; Debug is for developers.
     var title: String {
         switch self {
-        case .general: "General"
-        case .archiveWindow: "Window"
-        case .formats: "Formats"
-        case .extraction: "Extraction"
+        case .general: String(localized: .labSettingsTabGeneral)
+        case .archiveWindow: String(localized: .labSettingsTabWindow)
+        case .formats: String(localized: .labSettingsTabFormats)
+        case .extraction: String(localized: .labSettingsTabExtraction)
         case .integration: "Finder"
-        case .permissions: "Permissions"
-        case .advanced: "Advanced"
-        case .about: "About"
+        case .permissions: String(localized: .labSettingsTabPermissions)
+        case .advanced: String(localized: .labSettingsTabAdvanced)
+        case .about: String(localized: .labSettingsTabAbout)
         case .debug: "Debug"
         }
     }
@@ -67,7 +66,7 @@ enum SettingsViewTab: Int, CaseIterable, Identifiable {
     }
 
     /// The colour of the tile behind the symbol: General grey, Advanced
-    /// black, and the others the owner's "Jewel" palette — sapphire, copper,
+    /// black, and the others the "Jewel" palette — sapphire, copper,
     /// emerald, gold, ruby, amethyst — a different hue for every pane.
     var tint: Color {
         switch self {
@@ -352,13 +351,26 @@ private struct SettingsIcon: View {
 /// the right, centred on the whole row. A `Form` lines controls up with the
 /// title's first line instead, which looked wrong beside a second line.
 struct SettingRow<Control: View>: View {
-    let title: String
-    var detail: String? = nil
-    @ViewBuilder let control: Control
+    let label: SettingLabel
+    let control: Control
+
+    init(title: LocalizedStringResource, detail: LocalizedStringResource? = nil,
+         @ViewBuilder control: () -> Control) {
+        self.label = SettingLabel(title: title, detail: detail)
+        self.control = control()
+    }
+
+    /// A row named by a name — the app's own — rather than by words to
+    /// translate.
+    init(verbatim title: String, detail: LocalizedStringResource? = nil,
+         @ViewBuilder control: () -> Control) {
+        self.label = SettingLabel(verbatim: title, detail: detail)
+        self.control = control()
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            SettingLabel(title: title, detail: detail)
+            label
             Spacer(minLength: 8)
             control
         }
@@ -367,8 +379,8 @@ struct SettingRow<Control: View>: View {
 
 /// A setting that is on or off, as a switch on a centred row.
 struct SettingToggle: View {
-    let title: String
-    var detail: String? = nil
+    let title: LocalizedStringResource
+    var detail: LocalizedStringResource? = nil
     @Binding var isOn: Bool
 
     var body: some View {
@@ -382,14 +394,24 @@ struct SettingToggle: View {
 
 /// A setting's name with, when it needs one, a line saying what it does.
 struct SettingLabel: View {
-    let title: String
-    var detail: String? = nil
+    let title: Text
+    var detail: Text? = nil
+
+    init(title: LocalizedStringResource, detail: LocalizedStringResource? = nil) {
+        self.title = Text(title)
+        self.detail = detail.map { Text($0) }
+    }
+
+    init(verbatim title: String, detail: LocalizedStringResource? = nil) {
+        self.title = Text(verbatim: title)
+        self.detail = detail.map { Text($0) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
+            title
             if let detail {
-                Text(detail)
+                detail
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

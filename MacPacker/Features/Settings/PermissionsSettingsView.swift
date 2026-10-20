@@ -18,22 +18,22 @@ struct PermissionsSettingsView: View {
         Form {
             Section {
                 grantRow(
-                    title: "Home folder",
-                    detail: "Desktop, Documents, Downloads and the rest of your home folder.",
+                    title: .labSettingsHomeFolder,
+                    detail: .labSettingsHomeFolderDetail,
                     folder: home,
                     granted: homeGranted
                 ) { homeGranted = true }
 
                 grantRow(
-                    title: "External volumes",
-                    detail: "USB drives, memory cards and network shares.",
+                    title: .labSettingsExternalVolumes,
+                    detail: .labSettingsExternalVolumesDetail,
                     folder: volumes,
                     granted: volumesGranted
                 ) { volumesGranted = true }
             } header: {
-                Text(verbatim: "Folder Access")
+                Text(.labSettingsSectionFolderAccess)
             } footer: {
-                Text(verbatim: "macOS lets \(Constants.appName) read and write only where you allow it. Allowing these two ends the folder-access questions.")
+                Text(.labSettingsFolderAccessFooter(Constants.appName))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -48,8 +48,8 @@ struct PermissionsSettingsView: View {
 
     @ViewBuilder
     private func grantRow(
-        title: String,
-        detail: String,
+        title: LocalizedStringResource,
+        detail: LocalizedStringResource,
         folder: URL?,
         granted: Bool,
         onGranted: @escaping () -> Void
@@ -57,7 +57,7 @@ struct PermissionsSettingsView: View {
         SettingRow(title: title, detail: detail) {
             if granted {
                 Label {
-                    Text(verbatim: "Allowed")
+                    Text(.labSettingsAllowed)
                 } icon: {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 }
@@ -68,7 +68,7 @@ struct PermissionsSettingsView: View {
                         if await FolderAccessStore.shared.grantAccess(to: folder) { onGranted() }
                     }
                 } label: {
-                    Text(verbatim: "Allow…")
+                    Text(.labSettingsAllow)
                 }
                 .disabled(folder == nil)
             }

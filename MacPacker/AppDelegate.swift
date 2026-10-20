@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @AppStorage(Keys.quitOnLastWindowClosed) var quitOnLastWindowClosed: Bool = false
     private var archiveWindowManager: ArchiveWindowManager? = nil
     private var extractionProgressWindowController: ExtractionProgressWindowController? = nil
+    /// MacPacker Lab
+    private var jobFinishedNotifier: JobFinishedNotifier? = nil
     private var dropMenuBarItem: DropMenuBarItem? = nil
     /// The one compressor behind every "drop files to compress" surface — the
     /// quick-compress window and the start page's compress column. Shared so the
@@ -200,6 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // from its first window on, the app is in use as an app
         archiveWindowManager?.onFirstWindowOpened = { [weak self] in self?.startUpdateChecksIfInUse() }
         extractionProgressWindowController = ExtractionProgressWindowController(center: .shared)
+        jobFinishedNotifier = JobFinishedNotifier(center: .shared)
 
         // The window is cheap (the panel itself is built on first show); the menu
         // bar item installs itself only if the user switched it on.

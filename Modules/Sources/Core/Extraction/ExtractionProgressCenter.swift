@@ -36,11 +36,14 @@ public struct ExtractionJob: Identifiable, Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case extraction
         case compression
+        /// MacPacker Lab: "Test Archive", which writes nothing the user sees.
+        case test
 
         fileprivate var label: String {
             switch self {
             case .extraction: "Extraction"
             case .compression: "Compression"
+            case .test: "Test"
             }
         }
     }
@@ -219,8 +222,11 @@ public final class ExtractionProgressCenter: ObservableObject {
     /// What the running jobs are doing, for the wording around the window:
     /// extraction while one is running, compression when those are all that is
     /// left, `nil` when nothing is.
+    ///
+    /// A test is never it: it can be stopped at any point with nothing lost,
+    /// so quitting under it needs no warning.
     public var runningKind: ExtractionJob.Kind? {
-        let running = jobs.filter { !$0.isFinished }
+        let running = jobs.filter { !$0.isFinished && $0.kind != .test }
         if running.contains(where: { $0.kind == .extraction }) { return .extraction }
         return running.isEmpty ? nil : .compression
     }

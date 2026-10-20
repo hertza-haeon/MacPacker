@@ -400,7 +400,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let alert = NSAlert()
         alert.alertStyle = .warning
         switch running {
-        case .extraction:
+        // MacPacker Lab: a test is never `runningKind`
+        case .extraction, .test:
             alert.messageText = String(localized: .appExtractionInProgress)
             alert.informativeText = String(localized: .appQuitDuringExtractionWarning)
         case .compression:

@@ -194,6 +194,39 @@ final actor Archive7ZipEngine: ArchiveEngine {
         }
     }
 
+    /// MacPacker Lab: 7-Zip's own test, which decodes every entry against its
+    /// checksum and writes nothing — so it also names the entries that fail.
+    func test(
+        _ url: URL,
+        passwordResolver: @escaping ArchivePasswordResolver,
+        onProgress: ArchiveExtractionProgress?
+    ) async throws -> ArchiveTestReport {
+        let attempts = ArchivePasswordAttempts(url: url, resolver: passwordResolver)
+        let szip = try await Self.open(url: url, attempts: attempts)
+
+        // Same retry shape as extract: a wrong password only shows once an
+        // entry is decoded.
+        while true {
+            do {
+                // blocking C call — keep it off the cooperative pool
+                let report = try await runBlocking {
+                    try szip.testAll(progress: Self.bridgeProgress(onProgress))
+                }
+                let paths = Dictionary(
+                    try szip.entries.map { ($0.index, $0.path) },
+                    uniquingKeysWith: { first, _ in first })
+                return ArchiveTestReport(
+                    damagedPaths: report.damagedIndices.compactMap { paths[$0] },
+                    problem: report.problem)
+            } catch SevenZipError.passwordMissing, SevenZipError.passwordWrong {
+                szip.setPassword(try await attempts.next())
+                continue
+            } catch SevenZipError.cancelled {
+                throw CancellationError()
+            }
+        }
+    }
+
     /// Opens the archive with the password it needs, asked for here rather than
     /// when something later fails.
     ///

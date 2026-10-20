@@ -276,6 +276,61 @@ public class SevenZipArchive {
         }
         return result2
     }
+
+    /// MacPacker Lab: decodes every entry and checks it against its stored
+    /// checksum, as 7-Zip's "Test" does. Nothing is written to disk.
+    /// - Parameter progress: Optional byte-progress callback; return `false`
+    ///   to abort.
+    /// - Returns: what the test found; a damaged archive is a result, not an
+    ///   error.
+    /// - Throws: ``SevenZipError/passwordMissing`` if any entry is encrypted
+    ///   and no password was set, ``SevenZipError/passwordWrong`` when the
+    ///   password set does not decrypt it, ``SevenZipError/cancelled`` when
+    ///   the progress callback aborted.
+    public func testAll(progress: ProgressHandler? = nil) throws -> SevenZipTestReport {
+        if !hasPassword, try entries.contains(where: \.isEncrypted) {
+            throw SevenZipError.passwordMissing
+        }
+        let box = progress.map(ProgressBox.init)
+        var errorPtr: UnsafeMutablePointer<CChar>?
+        var damagedPtr: UnsafeMutablePointer<UInt32>?
+        var damagedCount: UInt32 = 0
+        let result = withExtendedLifetime(box) {
+            sz_test_all(
+                handle.ref,
+                box != nil ? Self.progressThunk : nil,
+                box.map { Unmanaged.passUnretained($0).toOpaque() },
+                &damagedPtr, &damagedCount,
+                &errorPtr)
+        }
+        let damaged: [UInt32] = damagedPtr.map { pointer in
+            defer { free(pointer) }
+            return Array(UnsafeBufferPointer(start: pointer, count: Int(damagedCount)))
+        } ?? []
+
+        switch result {
+        case SZ_EXTRACT_OK:
+            return SevenZipTestReport(damagedIndices: [], problem: nil)
+        case SZ_EXTRACT_FAILED:
+            let message = errorPtr.map { pointer in
+                defer { free(pointer) }
+                return String(cString: pointer)
+            } ?? "Unknown error"
+            return SevenZipTestReport(damagedIndices: damaged, problem: message)
+        default:
+            try Self.check(result, errorPtr)
+            return SevenZipTestReport(damagedIndices: [], problem: nil)
+        }
+    }
+}
+
+/// MacPacker Lab: what ``SevenZipArchive/testAll(progress:)`` found.
+public struct SevenZipTestReport: Sendable, Equatable {
+    /// The entries that did not decode, by index, in archive order. Empty
+    /// when the archive is intact, or when it failed as a whole.
+    public let damagedIndices: [UInt32]
+    /// What went wrong, as 7-Zip names it; `nil` when every entry decoded.
+    public let problem: String?
 }
 
 // MARK: - Internal Conversion

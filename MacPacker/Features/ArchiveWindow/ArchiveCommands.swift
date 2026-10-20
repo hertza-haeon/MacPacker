@@ -72,6 +72,14 @@ struct ArchiveCommands: Commands {
             }
             .keyboardShortcut("e", modifiers: [.command, .option])
 
+            // MacPacker Lab: reads every file and checks it, writing nothing
+            Button {
+                guard let state = Self.frontArchiveState(), state.canTest else { return }
+                state.test()
+            } label: {
+                Text(.commonTestArchive)
+            }
+
             // Deletion is the standard Edit ▸ Delete menu item, handled by the
             // archive table (ArchiveTableView.delete(_:)) — not a File command.
         }

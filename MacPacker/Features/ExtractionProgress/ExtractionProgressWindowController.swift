@@ -109,7 +109,13 @@ final class ExtractionProgressWindowController: NSWindowController, NSWindowDele
         if hasActive {
             // Named after what is running. The title bar shows no text; VoiceOver
             // and Mission Control read it.
-            let title = String(localized: center.runningKind == .compression ? .commonCompressing : .commonExtracting)
+            // MacPacker Lab: a test is never `runningKind`, so running with
+            // none, all that runs is tests.
+            let title = switch center.runningKind {
+            case .compression: String(localized: .commonCompressing)
+            case nil: String(localized: .commonTesting)
+            default: String(localized: .commonExtracting)
+            }
             if window?.title != title {
                 window?.title = title
             }

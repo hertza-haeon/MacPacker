@@ -117,6 +117,24 @@ struct ContentView: View {
         } message: { reason in
             Text(verbatim: reason)
         }
+        // MacPacker Lab: what "Test archive" found. A test that was stopped
+        // says nothing.
+        .alert(
+            Text(archiveState.testResult?.isIntact == false
+                 ? LocalizedStringResource.archiveTestFailed
+                 : .archiveTestPassed),
+            isPresented: Binding(
+                get: { archiveState.testResult != nil },
+                set: { presented in
+                    if !presented { archiveState.clearTestResult() }
+                }
+            ),
+            presenting: archiveState.testResult
+        ) { _ in
+            Button(.commonOk, role: .cancel) { }
+        } message: { result in
+            Text(verbatim: Self.message(for: result))
+        }
         .sheet(isPresented: $showPasswordSheet) {
             PasswordView(
                 request: passwordRequest,
@@ -136,6 +154,21 @@ struct ContentView: View {
         .navigationTitle(archiveState.hasArchive == false ? Bundle.main.displayName : archiveState.name!)
         .navigationSubtitle(Text(verbatim: "\(archiveState.diff.count > 0 ? String(localized: .archiveBrowseEdited) + " • " : "")\(archiveState.url == nil ? "" : archiveState.url!.deletingLastPathComponent().path + "/")"))
         .environmentObject(archiveState)
+    }
+
+    /// The reason a test gave, as the engine gave it, and the first of the
+    /// files it named.
+    private static func message(for result: ArchiveTestResult) -> String {
+        guard let problem = result.problem else {
+            return String(localized: .archiveTestPassedMessage(result.archiveName))
+        }
+        var lines = [String(localized: .archiveTestFailedMessage(result.archiveName)), "", problem]
+        if !result.damagedPaths.isEmpty {
+            lines += ["", String(localized: .archiveTestDamagedFiles)]
+            lines += result.damagedPaths.prefix(10)
+            if result.damagedPaths.count > 10 { lines.append("…") }
+        }
+        return lines.joined(separator: "\n")
     }
 }
 

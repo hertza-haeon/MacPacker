@@ -128,6 +128,18 @@ int sz_extract_all(SZArchiveRef archive, const char *dest_dir,
                    sz_progress_callback progress, void *progress_context,
                    char **error_out);
 
+/// MacPacker Lab: decodes every entry and checks it, as 7-Zip's "Test" does,
+/// writing nothing to disk. Returns SZ_EXTRACT_OK when every entry decoded,
+/// SZ_EXTRACT_WRONG_PASSWORD, SZ_EXTRACT_ABORTED, or SZ_EXTRACT_FAILED with
+/// *error_out naming the worst failure. On SZ_EXTRACT_FAILED, *damaged_out
+/// receives a malloc'd array of the indices of the entries that did not
+/// decode (NULL when none could be named) and *damaged_count_out its length;
+/// the caller frees it.
+int sz_test_all(SZArchiveRef archive,
+                sz_progress_callback progress, void *progress_context,
+                uint32_t **damaged_out, uint32_t *damaged_count_out,
+                char **error_out);
+
 // --- Tree support ---
 
 /// Returns true if the archive natively provides parent-child relationships

@@ -138,7 +138,14 @@ struct ExtractionProgressRowView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
-                    Text(verbatim: job.archiveName)
+                    Group {
+                        // MacPacker Lab: a test extracts nothing, and says so
+                        if job.kind == .test {
+                            Text(.archiveTestingName(job.archiveName))
+                        } else {
+                            Text(verbatim: job.archiveName)
+                        }
+                    }
                         .fontWeight(.semibold)
                         .lineLimit(1)
                         .truncationMode(.middle)

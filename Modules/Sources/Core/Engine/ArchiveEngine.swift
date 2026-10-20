@@ -85,6 +85,33 @@ public struct ArchiveExtractionResult: Sendable {
     }
 }
 
+/// MacPacker Lab: what testing an archive found.
+public struct ArchiveTestReport: Sendable, Equatable {
+    /// Paths in the archive of the entries that did not decode, in archive
+    /// order — empty when the engine cannot tell which.
+    public let damagedPaths: [String]
+    /// What went wrong; `nil` when every entry decoded.
+    public let problem: String?
+
+    public var isIntact: Bool { problem == nil }
+
+    public init(damagedPaths: [String] = [], problem: String? = nil) {
+        self.damagedPaths = damagedPaths
+        self.problem = problem
+    }
+}
+
+/// MacPacker Lab: what "Test Archive" found, for the window to say.
+public struct ArchiveTestResult: Sendable, Equatable {
+    public let archiveName: String
+    /// See `ArchiveTestReport.damagedPaths`.
+    public let damagedPaths: [String]
+    /// What went wrong; `nil` when every entry decoded.
+    public let problem: String?
+
+    public var isIntact: Bool { problem == nil }
+}
+
 /// Byte-level progress reported by an engine during extraction. `completed`
 /// and `total` share the engine's own processed-bytes unit. Return `false`
 /// to abort the extraction. Called on the extraction thread.
@@ -163,6 +190,43 @@ public protocol ArchiveEngine: Sendable {
         passwordResolver: @escaping ArchivePasswordResolver,
         onProgress: ArchiveExtractionProgress?
     ) async throws
+
+    /// MacPacker Lab: decodes every entry of the archive and checks it,
+    /// leaving nothing behind. A damaged archive is a report, not an error;
+    /// what throws is a test that could not run, or was stopped.
+    func test(
+        _ url: URL,
+        passwordResolver: @escaping ArchivePasswordResolver,
+        onProgress: ArchiveExtractionProgress?
+    ) async throws -> ArchiveTestReport
+}
+
+public extension ArchiveEngine {
+    /// An engine with no test of its own extracts everything into a
+    /// temporary folder, removed once it is done: what extracts there is what
+    /// would anywhere. It costs the disk space of the extracted archive while
+    /// it runs.
+    func test(
+        _ url: URL,
+        passwordResolver: @escaping ArchivePasswordResolver,
+        onProgress: ArchiveExtractionProgress?
+    ) async throws -> ArchiveTestReport {
+        guard let folder = ArchiveSupportUtilities().createTempDirectory()?.url else {
+            throw ArchiveError.extractionFailed("Could not create a temporary folder for the test.")
+        }
+        defer { try? FileManager.default.removeItem(at: folder) }
+        do {
+            try await extract(url, to: folder, passwordResolver: passwordResolver, onProgress: onProgress)
+            try Task.checkCancellation()
+            return ArchiveTestReport()
+        } catch let error as CancellationError {
+            throw error
+        } catch ArchiveError.passwordCancelled {
+            throw ArchiveError.passwordCancelled
+        } catch {
+            return ArchiveTestReport(problem: error.localizedDescription)
+        }
+    }
 }
 
 public extension ArchiveEngine {

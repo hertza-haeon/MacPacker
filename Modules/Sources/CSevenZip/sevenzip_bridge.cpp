@@ -514,6 +514,8 @@ public:
     /// does removing a sidecar from it, so a time set on creation never survives
     /// the directory's own contents.
     std::vector<std::pair<std::string, EntryTime>> directoryTimes;
+    /// Entries that did not decode, by index — what a test names as damaged.
+    std::vector<UInt32> failedIndices;
 
     std::string destDir() const { return std::string(_destDir.Ptr(), (size_t)_destDir.Len()); }
 
@@ -532,6 +534,7 @@ private:
     EntryTime _currentTime;          // kpidMTime of the entry being written
     bool _currentIsSymlink = false;  // entry is a Unix symlink (S_IFLNK)
     bool _currentIsEncrypted = false; // entry is encrypted (kpidEncrypted)
+    UInt32 _currentIndex = 0;        // entry GetStream was last asked about
     std::string _password;
     bool _hasPassword;
     sz_progress_callback _progress;
@@ -543,6 +546,7 @@ Z7_COM7F_IMF(CExtractCallback::GetStream(
     UInt32 index, ISequentialOutStream **outStream, Int32 askExtractMode))
 {
     *outStream = nullptr;
+    _currentIndex = index;
 
     // Reset per-entry POSIX state. SetOperationResult only acts when GetStream
     // fills these in below for an actually-extracted file.
@@ -883,6 +887,7 @@ Z7_COM7F_IMF(CExtractCallback::SetOperationResult(Int32 opRes))
         if (failedOpResult == NArchive::NExtract::NOperationResult::kOK ||
             opRes == NArchive::NExtract::NOperationResult::kWrongPassword)
             failedOpResult = opRes;
+        failedIndices.push_back(_currentIndex);
         _currentIsSymlink = false;
         _currentMode = 0;
         _currentTime = EntryTime();
@@ -1578,6 +1583,49 @@ int sz_extract_all(SZArchiveRef archive, const char *dest_dir,
         return finishExtract(callback, hr, error_out);
     } catch (...) {
         if (error_out) *error_out = strdup("Internal error during extraction");
+        return SZ_EXTRACT_FAILED;
+    }
+}
+
+int sz_test_all(SZArchiveRef archive,
+                sz_progress_callback progress, void *progress_context,
+                uint32_t **damaged_out, uint32_t *damaged_count_out,
+                char **error_out) {
+    if (damaged_out) *damaged_out = nullptr;
+    if (damaged_count_out) *damaged_count_out = 0;
+    if (!archive) {
+        if (error_out) *error_out = strdup("Invalid arguments");
+        return SZ_EXTRACT_FAILED;
+    }
+    try {
+        auto *handle = static_cast<SZArchiveHandle *>(archive);
+
+        // No destination: in test mode 7-Zip asks GetStream for each entry
+        // with kTest, which hands back no stream, and decodes the entry
+        // into nothing but its checksum.
+        auto *callback = new CExtractCallback(handle->activeArchive(), FString(),
+                                                handle->password, handle->hasPassword,
+                                                progress, progress_context);
+        CMyComPtr<IArchiveExtractCallback> callbackRef(callback);
+
+        HRESULT hr = handle->activeArchive()->Extract(
+            nullptr, (UInt32)(Int32)-1, 1, callback);
+
+        const int result = finishExtract(callback, hr, error_out);
+        if (result == SZ_EXTRACT_FAILED && !callback->failedIndices.empty()
+            && damaged_out && damaged_count_out) {
+            const size_t count = callback->failedIndices.size();
+            auto *indices = static_cast<uint32_t *>(malloc(count * sizeof(uint32_t)));
+            if (indices) {
+                for (size_t i = 0; i < count; i++)
+                    indices[i] = callback->failedIndices[i];
+                *damaged_out = indices;
+                *damaged_count_out = (uint32_t)count;
+            }
+        }
+        return result;
+    } catch (...) {
+        if (error_out) *error_out = strdup("Internal error during the test");
         return SZ_EXTRACT_FAILED;
     }
 }

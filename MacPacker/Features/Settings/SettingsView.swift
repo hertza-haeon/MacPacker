@@ -105,8 +105,9 @@ struct SettingsView: View {
         NavigationSplitView {
             SettingsSidebar(selection: $state.selectedSettingsTab)
                 // the column width alone is not honoured in the Settings window
-                .frame(minWidth: 200)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 200, max: 200)
+                .frame(width: SettingsSidebar.width)
+                .navigationSplitViewColumnWidth(min: SettingsSidebar.width, ideal: SettingsSidebar.width,
+                                                max: SettingsSidebar.width)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             // Every pane is built when the window opens and kept: switching
@@ -159,6 +160,19 @@ private struct SettingsSidebar: View {
     @FocusState private var isFocused: Bool
 
     private static let rowHeight: CGFloat = 42
+    fileprivate static let titleFont = NSFont.systemFont(ofSize: 14)
+
+    /// As wide as the longest title needs, with the tile and the margins
+    /// around it, and no wider.
+    static let width: CGFloat = {
+        let widest = SettingsViewTab.allCases
+            .map { ($0.title as NSString).size(withAttributes: [.font: titleFont]).width }
+            .max() ?? 0
+        // the sidebar's margins (10 + 10), the row's (7 + 7), the tile and
+        // the space after it (30 + 10), the space before the row's trailing
+        // spacer (10), and a little room to breathe
+        return ceil(widest) + 20 + 14 + 40 + 10 + 6
+    }()
     private static let rowSpacing: CGFloat = 2
     /// The divider between the two groups, with the space around it.
     private static let dividerHeight: CGFloat = 17
@@ -255,7 +269,8 @@ private struct SidebarRow: View {
             HStack(spacing: 10) {
                 SettingsIcon(tab: tab)
                 Text(tab.title)
-                    .font(.system(size: 14))
+                    .font(Font(SettingsSidebar.titleFont))
+                    .lineLimit(1)
                     .foregroundStyle(.primary)
                 Spacer(minLength: 0)
             }

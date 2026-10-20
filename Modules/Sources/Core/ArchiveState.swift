@@ -438,6 +438,8 @@ extension ArchiveState {
     /// All entries (any level) whose name contains the search text, ordered
     /// as `ArchiveListOrder` says.
     private func searchResults() -> [ArchiveItem] {
+        // read once: through its publisher, each read of `entries` costs
+        let entries = self.entries
         let keys = entries.values.map(ArchiveItemKey.init)
         let matches = ArchiveListOrder.current.searched(keys, for: searchText) ?? []
         return matches.compactMap { entries[$0.id] }
@@ -482,6 +484,9 @@ extension ArchiveState {
         // a search still under way is not shown once it is left
         searchTask?.cancel()
 
+        // MacPacker Lab: read once — through its publisher, each read of
+        // `entries` costs, and a folder of 100,000 took 54 ms to look up
+        let entries = self.entries
         guard UserDefaults.standard.string(forKey: Keys.defaultOrderColumn) != nil else {
             childItems = selectedItem.children?.compactMap { entries[$0] }
             return
@@ -493,8 +498,7 @@ extension ArchiveState {
     }
 
     private func sortedForDisplay(_ items: [ArchiveItem]) -> [ArchiveItem] {
-        let byID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return ArchiveListOrder.current.sorted(items.map(ArchiveItemKey.init)).compactMap { byID[$0.id] }
+        ArchiveListOrder.current.sortedIndices(items.map(ArchiveItemKey.init)).map { items[$0] }
     }
 
     /// This stream is the only way to get status from any engine in a concurrency safe way

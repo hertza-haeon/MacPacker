@@ -355,6 +355,37 @@ private final class XADArchiveWithPasswordSupport: @unchecked Sendable {
         try await read { $0.numberOfEntries() }
     }
 
+    /// MacPacker Lab: one entry as the parse found it.
+    struct EntryInfo: Sendable {
+        let path: String
+        let isDirectory: Bool
+        let isEncrypted: Bool
+        let compressedSize: Int
+        /// `nil` when the entry gives no size of its own.
+        let uncompressedSize: Int?
+        let modificationDate: Date?
+        let posixPermissions: Int?
+    }
+
+    /// MacPacker Lab: every entry, read in one blocking call. Read value by
+    /// value, each crossing to the pool and back, a 100,000-entry archive
+    /// took five seconds to list.
+    func entryInfos() async throws -> [EntryInfo] {
+        try await read { archive in
+            (0..<archive.numberOfEntries()).map { n in
+                let attributes = archive.attributes(ofEntry: n) as? [String: Any]
+                return EntryInfo(
+                    path: archive.name(ofEntry: n) ?? "",
+                    isDirectory: archive.entryIsDirectory(n),
+                    isEncrypted: archive.entryIsEncrypted(n),
+                    compressedSize: Int(archive.compressedSize(ofEntry: n)),
+                    uncompressedSize: archive.entryHasSize(n) ? Int(archive.uncompressedSize(ofEntry: n)) : nil,
+                    modificationDate: attributes?["NSFileModificationDate"] as? Date,
+                    posixPermissions: attributes?["NSFilePosixPermissions"] as? Int)
+            }
+        }
+    }
+
     func name(ofEntry n: Int32) async throws -> String {
         try await read { $0.name(ofEntry: n) ?? "" }
     }
@@ -491,34 +522,23 @@ final actor ArchiveXadEngine: ArchiveEngine {
         var entries: [UUID: ArchiveItem] = [:]
         var uncompressedSizeOverall: Int64 = 0
         var isEncrypted = false
-        let numberOfEntries = try await archive.numberOfEntries()
-        for index in 0..<numberOfEntries {
+        for (index, info) in try await archive.entryInfos().enumerated() {
+            let index = Int32(index)
             // name
-            let path = try await archive.name(ofEntry: index)
-            let isDir = try await archive.entryIsDirectory(index)
-            if try await archive.entryIsEncrypted(index) { isEncrypted = true }
+            let path = info.path
+            let isDir = info.isDirectory
+            if info.isEncrypted { isEncrypted = true }
 
             // tar archives (and similar) don't have a compressed size as they
             // just package up files.
-            var compressedSize: Int = -1
+            let compressedSize = info.compressedSize
             var uncompressedSize: Int = -1
-            compressedSize = try await archive.compressedSize(ofEntry: index)
             if !isDir {
-                if try await archive.entryHasSize(index) {
-                    uncompressedSize = try await archive.uncompressedSize(ofEntry: index)
-                } else {
-                    uncompressedSize = try await archive.compressedSize(ofEntry: index)
-                }
+                uncompressedSize = info.uncompressedSize ?? info.compressedSize
             }
 
-            // get more attributes
-            var modificationDate: Date?
-            var posixPermissions: Int?
-            let attributes = try await archive.attributes(ofEntry: index)
-            if let dict = attributes as? [String: Any] {
-                modificationDate = dict["NSFileModificationDate"] as? Date
-                posixPermissions = dict["NSFilePosixPermissions"] as? Int
-            }
+            let modificationDate = info.modificationDate
+            let posixPermissions = info.posixPermissions
 
             var name = path
             let parts = path.split(separator: "/")

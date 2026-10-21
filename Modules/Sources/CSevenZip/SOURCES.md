@@ -10,7 +10,7 @@ Update `Package.swift` `cSevenZipSources` array whenever this file changes.
 - `vendor/7zip/C/Alloc.c` -- Memory allocation
 - `vendor/7zip/C/CpuArch.c` -- CPU architecture detection
 - `vendor/7zip/C/Delta.c` -- Delta filter
-- `vendor/7zip/C/LzmaDec.c` -- LZMA decoder
+- `vendor/7zip/C/LzmaDec.c` -- LZMA decoder (compiled through `sevenzip_lzma_dec.c`, so not in `cSevenZipSources`)
 - `vendor/7zip/C/Lzma2Dec.c` -- LZMA2 decoder
 - `vendor/7zip/C/Lzma2DecMt.c` -- LZMA2 multi-thread decoder stub
 - `vendor/7zip/C/LzmaEnc.c` -- LZMA encoder (needed by some decoders)
@@ -349,13 +349,15 @@ Update `Package.swift` `cSevenZipSources` array whenever this file changes.
 ## Bridge files (Sources/CSevenZip/)
 
 - `Sources/CSevenZip/sevenzip_bridge.cpp` -- C bridge between 7-zip C++ internals and Swift
+- `Sources/CSevenZip/sevenzip_lzma_dec.c` -- compiles `vendor/7zip/C/LzmaDec.c` with `Z7_LZMA_DEC_OPT` on arm64
+- `Sources/CSevenZip/sevenzip_lzma_dec_arm64.S` -- assembles `vendor/7zip/Asm/arm64/LzmaDecOpt.S` on arm64 (empty on x86_64)
 
 ## Excluded directories
 
 - `vendor/7zip/CPP/7zip/UI/` -- CLI and GUI frontends
 - `vendor/7zip/CPP/7zip/Bundles/` -- Standalone binary bundles
 - `vendor/7zip/DOC/` -- Documentation
-- `vendor/7zip/Asm/` -- Assembly optimisations (C fallbacks used via _7ZIP_ST)
+- `vendor/7zip/Asm/` -- Assembly optimisations (C fallbacks used), except `Asm/arm64/LzmaDecOpt.S`, built through `sevenzip_lzma_dec_arm64.S`
 - `vendor/7zip/CPP/7zip/Compress/DllExports2Compress.cpp` -- DLL export for standalone module
 - `vendor/7zip/CPP/7zip/Compress/DllExportsCompress.cpp` -- DLL export for standalone module
 

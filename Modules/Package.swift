@@ -14,7 +14,7 @@ let cSevenZipSources: [String] = [
     "vendor/7zip/C/Alloc.c",
     "vendor/7zip/C/CpuArch.c",
     "vendor/7zip/C/Delta.c",
-    "vendor/7zip/C/LzmaDec.c",
+    // LzmaDec.c is compiled through sevenzip_lzma_dec.c (below).
     "vendor/7zip/C/Lzma2Dec.c",
     "vendor/7zip/C/Lzma2DecMt.c",
     "vendor/7zip/C/LzmaEnc.c",
@@ -400,6 +400,8 @@ let package = Package(
             sources: cSevenZipSources + [
                 "sevenzip_bridge.cpp",
                 "sevenzip_bridge_write.cpp",
+                "sevenzip_lzma_dec.c",
+                "sevenzip_lzma_dec_arm64.S",
             ],
             publicHeadersPath: "include",
             cSettings: [

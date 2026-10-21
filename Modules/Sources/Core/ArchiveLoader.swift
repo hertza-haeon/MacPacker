@@ -70,6 +70,23 @@ final actor ArchiveLoader {
         self.folderAccessResolver = folderAccessResolver
     }
 
+    /// A split archive — same shape as the compound step: reduce any volume to
+    /// the real archive (its first segment). First the engine selected for `type`,
+    /// which reads the volumes, must be able to, and we must hold folder access
+    /// for the siblings — requested through the app via the resolver, exactly
+    /// like a password. The read itself is wrapped in `Sandbox.access`.
+    private func firstVolume(of url: URL, split: SplitTypeDto, readBy type: ArchiveTypeDto) async throws -> URL {
+        guard engineDeclares("splitVolumes", for: type) else {
+            throw ArchiveError.invalidArchive("The engine selected for \(type.name) can't read split archives. Switch to 7-Zip in Settings.")
+        }
+        let firstVolume = SplitVolumeResolver.firstVolume(for: url, split: split)
+        guard await folderAccessResolver(firstVolume) else {
+            throw ArchiveError.invalidArchive("Access to the folder of \(firstVolume.lastPathComponent) was declined; the other volumes can't be read.")
+        }
+        yield(.processing(progress: nil, activity: .splitFirstVolume(firstVolume.lastPathComponent)))
+        return firstVolume
+    }
+
     /// Whether the engine currently selected for `type` declares `capability`.
     private func engineDeclares(_ capability: String, for type: ArchiveTypeDto) -> Bool {
         guard let selected = archiveEngineSelector.engineType(for: type.id),
@@ -131,6 +148,18 @@ final actor ArchiveLoader {
             "split": detectorResult.split == nil ? "no" : "yes"
         ])
         
+        // MacPacker Lab: a compressed tar split into volumes is both — read from
+        // its first volume by the compression's engine, then unpacked like any
+        // compound.
+        var compoundSource = url
+        if let compound = detectorResult.composition, let split = detectorResult.split {
+            guard let compression = archiveTypeDetector.type(for: compound.components.last!) else {
+                throw ArchiveError.invalidArchive("No format is known for the volumes of \(url.lastPathComponent).")
+            }
+            compoundSource = try await firstVolume(of: url, split: split, readBy: compression)
+            firstVolumeURL = compoundSource
+        }
+
         if let compound = detectorResult.composition {
             // this is a compound, in which case we decompress first,
             // then check the actual archive later
@@ -155,9 +184,9 @@ final actor ArchiveLoader {
             compoundTempUrl = temp.url
             yield(.processing(progress: nil, activity: .temporaryDirectoryCreated(temp.url)))
             
-            let loaderResult = try await Sandbox.access(url: url) {
+            let loaderResult = try await Sandbox.access(url: compoundSource) {
                 try await engine.loadArchive(
-                    url: url,
+                    url: compoundSource,
                     passwordResolver: passwordResolver
                 )
             }
@@ -168,10 +197,10 @@ final actor ArchiveLoader {
                 throw ArchiveError.extractionFailed("Extraction of \(url.lastPathComponent) resulted in no files")
             }
             
-            let extractedArchiveURL = try await Sandbox.access(url: url) {
+            let extractedArchiveURL = try await Sandbox.access(url: compoundSource) {
                 try await engine.extract(
                     item: entries.first!.value,
-                    from: url,
+                    from: compoundSource,
                     to: temp.url,
                     passwordResolver: passwordResolver
                 )
@@ -179,21 +208,9 @@ final actor ArchiveLoader {
             archiveUrl = extractedArchiveURL
             yield(.processing(progress: nil, activity: .entryExtracted(extractedArchiveURL)))
         } else if let split = detectorResult.split {
-            // A split archive — same shape as the compound step: reduce any volume to
-            // the real archive (its first segment). First the selected engine must be
-            // able to read split volumes, and we must hold folder access for the
-            // siblings — requested through the app via the resolver, exactly like a
-            // password. The read itself is wrapped in `Sandbox.access`.
-            guard engineDeclares("splitVolumes", for: detectorResult.type) else {
-                throw ArchiveError.invalidArchive("The engine selected for \(detectorResult.type.name) can't read split archives. Switch to 7-Zip in Settings.")
-            }
-            let firstVolume = SplitVolumeResolver.firstVolume(for: url, split: split)
-            guard await folderAccessResolver(firstVolume) else {
-                throw ArchiveError.invalidArchive("Access to the folder of \(firstVolume.lastPathComponent) was declined; the other volumes can't be read.")
-            }
+            let firstVolume = try await firstVolume(of: url, split: split, readBy: detectorResult.type)
             archiveUrl = firstVolume
             firstVolumeURL = firstVolume
-            yield(.processing(progress: nil, activity: .splitFirstVolume(firstVolume.lastPathComponent)))
         }
 
         guard let archiveUrl else {

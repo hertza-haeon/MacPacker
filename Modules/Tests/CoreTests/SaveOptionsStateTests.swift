@@ -918,8 +918,7 @@ extension AllCoreTests {
             return state
         }
 
-        // (A compressed tar is written whole: see CompressedTarWriteTests.)
-        @Test(arguments: CompressionOptions.Format.allCases.filter(CompressionOptions.canSplit))
+        @Test(arguments: CompressionOptions.Format.allCases)
         func aSplitSaveReopensItsFirstVolume(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }

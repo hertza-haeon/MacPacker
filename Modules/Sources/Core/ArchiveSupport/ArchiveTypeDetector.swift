@@ -52,6 +52,11 @@ final public class ArchiveTypeDetector: Sendable {
         self.catalog = catalog
     }
 
+    /// The catalog's format of that id.
+    public func type(for id: String) -> ArchiveTypeDto? {
+        catalog.getType(for: id)
+    }
+
     public func getNameWithoutExtension(for url: URL) -> String {
         var name = url.lastPathComponent
         // `detectByExtension` matches case-insensitively, so a `MyArchive.ZIP`
@@ -61,7 +66,8 @@ final public class ArchiveTypeDetector: Sendable {
         // its casing (MyArchive.ZIP → "MyArchive").
         let lowercasedName = name.lowercased()
         if let byExt = detectByExtension(for: url, considerComposition: true) {
-            if let composition = byExt.composition {
+            // (a split compressed tar is named by its split pattern, below)
+            if let composition = byExt.composition, byExt.split == nil {
                 for compExt in composition.extensions {
                     if lowercasedName.hasSuffix(".\(compExt)") {
                         name.removeLast(compExt.count + 1)
@@ -137,6 +143,17 @@ final public class ArchiveTypeDetector: Sendable {
         // 2. split volume part by extension (e.g. .z01, .zip.001) → points back to its format
         for split in catalog.allSplits()
         where name.range(of: split.pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+            // MacPacker Lab: a compressed tar's volumes are a compound and a split
+            // at once — the tar.gz to open, and the volumes it is read from.
+            if let compositionId = split.composition {
+                guard considerComposition else { continue }
+                if let composition = catalog.allCompositions().first(where: { $0.id == compositionId }),
+                   let baseType = catalog.getType(for: split.format) {
+                    return DetectionResult(type: baseType, composition: composition, split: split, source: .fileExtension)
+                }
+                log.error("Split type \(split.id) references unknown composition \(compositionId)")
+                continue
+            }
             if let baseType = catalog.getType(for: split.format) {
                 return DetectionResult(type: baseType, split: split, source: .fileExtension)
             } else {

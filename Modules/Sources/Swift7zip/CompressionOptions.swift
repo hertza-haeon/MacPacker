@@ -99,10 +99,6 @@ public struct CompressionOptions: Sendable {
     /// can't.
     public static func canEncrypt(_ format: Format) -> Bool { !format.isCompressedTar }
 
-    /// Whether `format` can be split into volumes here: zip and 7z. A
-    /// compressed tar is written in two passes, and only whole.
-    public static func canSplit(_ format: Format) -> Bool { !format.isCompressedTar }
-
     /// What `method` stands for in `format`: the format's default for `nil`.
     public static func effectiveMethod(_ method: Method?, in format: Format) -> Method {
         method ?? (format == .zip ? .deflate : .lzma2)

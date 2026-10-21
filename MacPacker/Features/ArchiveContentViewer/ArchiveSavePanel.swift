@@ -103,13 +103,10 @@ struct SaveOptionsRows: View {
                     .fixedSize()
                     .accessibilityIdentifier("saveOptions.level")
             }
-            // a compressed tar is written whole
-            if !options.volumeSizes.isEmpty {
-                row(Text(.archiveSaveSplitIntoVolumes)) {
-                    VolumeControl(options: options)
-                        .fixedSize()
-                        .accessibilityIdentifier("saveOptions.volume")
-                }
+            row(Text(.archiveSaveSplitIntoVolumes)) {
+                VolumeControl(options: options)
+                    .fixedSize()
+                    .accessibilityIdentifier("saveOptions.volume")
             }
 
             // a tar takes no password

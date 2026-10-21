@@ -343,17 +343,25 @@ public:
 /// to look for its signature in the first `maxCheckStart` bytes.
 /// Returns S_OK on success with archiveOut set, and formatOut the name 7-Zip
 /// registers the format that opened it under; S_FALSE if no format matched.
+/// MacPacker Lab: `onlyFormat`, when given, is the one format tried.
 static HRESULT tryOpenStream(
     IInStream *stream,
     CMyComPtr<IInArchive> &archiveOut,
     std::string &formatOut,
     IArchiveOpenCallback *callback,
-    UInt64 maxCheckStart)
+    UInt64 maxCheckStart,
+    const char *onlyFormat = nullptr)
 {
     UInt32 numFormats = 0;
     GetNumberOfFormats(&numFormats);
 
     for (UInt32 i = 0; i < numFormats; i++) {
+        if (onlyFormat) {
+            NWindows::NCOM::CPropVariant propName;
+            GetHandlerProperty2(i, NArchive::NHandlerPropID::kName, &propName);
+            if (PropVariantToUTF8(propName) != onlyFormat)
+                continue;
+        }
         NWindows::NCOM::CPropVariant propClassID;
         GetHandlerProperty2(i, NArchive::NHandlerPropID::kClassID, &propClassID);
         if (propClassID.vt != VT_BSTR || !propClassID.bstrVal)
@@ -381,6 +389,20 @@ static HRESULT tryOpenStream(
         archive->Close();
     }
     return S_FALSE;
+}
+
+/// MacPacker Lab: whether `path` names the first of a set of numbered volumes:
+/// its last extension is a number of three digits or more, and that number is 1.
+static bool isFirstNumberedVolume(const char *path) {
+    const char *dot = strrchr(path, '.');
+    if (!dot || strchr(dot, '/'))
+        return false;
+    const char *digits = dot + 1;
+    size_t count = 0;
+    for (const char *c = digits; *c; c++, count++)
+        if (*c < '0' || *c > '9')
+            return false;
+    return count >= 3 && strtoul(digits, nullptr, 10) == 1;
 }
 
 /// Opens the given seekable stream as an archive. Returns as tryOpenStream.
@@ -1222,7 +1244,15 @@ SZArchiveRef sz_open(const char *path, const char *password,
         // Try each registered format on the file stream
         CMyComPtr<IInArchive> firstArchive;
         std::string firstFormat;
-        HRESULT hr = sz_open_stream(handle->fileStream, firstArchive, firstFormat, volCallback);
+        // MacPacker Lab: a first volume (`x.tar.gz.001`) opens as the set it
+        // starts, joined, as 7-Zip's own client does by that extension. Probed
+        // like any file, it can pass for a whole gzip or bzip2 -- formats with
+        // nothing at their end to miss -- and would read as one, cut short.
+        HRESULT hr = isFirstNumberedVolume(path)
+            ? tryOpenStream(handle->fileStream, firstArchive, firstFormat, volCallback, 0, "Split")
+            : S_FALSE;
+        if (hr != S_OK)
+            hr = sz_open_stream(handle->fileStream, firstArchive, firstFormat, volCallback);
         if (hr != S_OK || !firstArchive) {
             if (needs_password_out)
                 *needs_password_out = volCallbackSpec->passwordRequested;

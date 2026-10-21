@@ -38,7 +38,7 @@ extension AllCoreTests {
 
         /// `trip.zip.001` and its volumes are one archive; `trip.zip` beside
         /// them is another.
-        @Test(arguments: ["zip", "7z"])
+        @Test(arguments: ["zip", "7z", "tar.gz", "tar.xz", "tar.bz2"])
         func aNumberedSetLeavesTheArchiveOfTheSameName(format: String) {
             let names = ["trip.\(format)", "trip.\(format).001", "trip.\(format).002", "trip.\(format).003", "other.\(format).001"]
             #expect(files(of: "trip.\(format).001", among: names)

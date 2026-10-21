@@ -1110,8 +1110,9 @@ extension ArchiveState {
         let file = url.lastPathComponent
         for split in catalog.allSplits()
         where file.range(of: split.pattern, options: [.regularExpression, .caseInsensitive]) != nil {
-            // the format's extension, not its catalog id: a 7z set is "x.7z", not "x.7zip"
-            let ext = catalog.getType(for: split.format)?.extensions.first ?? split.format
+            // the format's extension, not its catalog id: a 7z set is "x.7z", not "x.7zip";
+            // a compressed tar's, its compound's: "x.tar.gz"
+            let ext = split.composition ?? catalog.getType(for: split.format)?.extensions.first ?? split.format
             return file.replacingOccurrences(of: split.pattern, with: ".\(ext)",
                                              options: [.regularExpression, .caseInsensitive])
         }

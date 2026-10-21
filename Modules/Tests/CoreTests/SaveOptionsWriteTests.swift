@@ -134,7 +134,7 @@ func noise(bytes: Int) -> Data {
 }
 
 /// The volumes `writeArchive` left next to `base`, in order.
-private func volumes(of base: URL) throws -> [URL] {
+func volumes(of base: URL) throws -> [URL] {
     let prefix = base.lastPathComponent + "."
     return try FileManager.default.contentsOfDirectory(atPath: base.deletingLastPathComponent().path)
         .filter { $0.hasPrefix(prefix) && Int($0.dropFirst(prefix.count)) != nil }
@@ -142,7 +142,7 @@ private func volumes(of base: URL) throws -> [URL] {
         .map { base.deletingLastPathComponent().appendingPathComponent($0) }
 }
 
-private func size(of url: URL) throws -> Int {
+func size(of url: URL) throws -> Int {
     try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int ?? -1
 }
 

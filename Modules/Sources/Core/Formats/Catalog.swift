@@ -38,6 +38,10 @@ public struct SplitTypeDto: Codable, Sendable {
     public let name: String
     /// The base format this is a split of ("zip", …).
     public let format: String
+    /// MacPacker Lab: for a compressed tar split into volumes, the compound it
+    /// is a split of ("tar.gz"), whose first component is `format`. The volumes
+    /// hold the compression around the tar. nil for any other split.
+    public let composition: String?
     /// Scheme identifier: "spanned" | "numeric".
     public let scheme: String
     /// File-name regex; a match means the file is a volume part of this type.

@@ -127,6 +127,30 @@ extension AllCoreTests {
             #expect(engine.capabilities.contains("splitVolumes"))
         }
 
+        /// MacPacker Lab: a compressed tar's volumes are the gzip, xz or bzip2
+        /// around the tar, cut up. The split names the compound it is a split of,
+        /// and 7-Zip, which reads the volumes, declares it can.
+        @Test(arguments: [("tar.gz", "gzip"), ("tar.xz", "xz"), ("tar.bz2", "bzip2")])
+        func catalogDeclaresCompressedTarSplits(compound: String, compression: String) throws {
+            let catalog = ArchiveTypeCatalog()
+            let split = try #require(catalog.allSplits().first { $0.composition == compound })
+            #expect(split.format == "tar")
+            #expect(split.scheme == "numeric")
+            #expect(split.label == ".\(compound).001")
+            let type = try #require(catalog.getType(for: compression))
+            let engine = try #require(type.engines.first(where: { $0.default == true }))
+            #expect(engine.id == "7zip")
+            #expect(engine.capabilities.contains("splitVolumes"))
+
+            let detected = try #require(ArchiveTypeDetector(catalog: catalog)
+                .detect(for: URL(fileURLWithPath: "/tmp/set.\(compound).003")))
+            #expect(detected.type.id == "tar")
+            #expect(detected.composition?.id == compound)
+            #expect(detected.split?.id == split.id)
+            #expect(SplitVolumeResolver.firstVolume(for: URL(fileURLWithPath: "/tmp/set.\(compound).003"), split: split)
+                .lastPathComponent == "set.\(compound).001")
+        }
+
         // MARK: - Window-identity label (catalog data; the manager applies it)
 
         @Test func splitsDeclareDedupLabels() throws {

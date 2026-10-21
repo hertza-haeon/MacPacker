@@ -134,8 +134,7 @@ public final class ArchiveSaveOptions: ObservableObject {
     public var canEncryptFileNames: Bool { CompressionOptions.canEncryptFileNames(format) }
     public var hasSolidBlocks: Bool { CompressionOptions.hasSolidBlocks(format) }
     public var solidBlockSizes: [UInt64] { CompressionOptions.solidBlockSizes }
-    /// Empty for a format that is written whole only.
-    public var volumeSizes: [UInt64] { CompressionOptions.canSplit(format) ? CompressionOptions.volumeSizes : [] }
+    public var volumeSizes: [UInt64] { CompressionOptions.volumeSizes }
 
     /// At Store nothing is compressed, so method, dictionary, word size and solid
     /// blocks do nothing.
@@ -173,7 +172,7 @@ public final class ArchiveSaveOptions: ObservableObject {
             dictionarySize: compresses ? dictionarySize : nil,
             wordSize: compresses ? wordSize : nil,
             solidBlockSize: compresses && hasSolidBlocks && (solidBlockSize ?? 0) > 0 ? solidBlockSize : nil,
-            volumeSize: volumeSizes.isEmpty ? nil : volumeSize,
+            volumeSize: volumeSize,
             excludeDSStore: excludeDSStore)
     }
 

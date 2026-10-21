@@ -56,7 +56,7 @@
       ],
       "engines": [
         { "id": "xad", "capabilities": ["listContents", "extractFiles"] },
-        { "id": "7zip", "capabilities": ["listContents", "extractFiles"], "default": true },
+        { "id": "7zip", "capabilities": ["listContents", "extractFiles", "splitVolumes"], "default": true },
         { "id": "swc", "capabilities": ["listContents", "extractFiles"] }
       ]
     },
@@ -132,7 +132,7 @@
       ],
       "engines": [
         { "id": "xad", "capabilities": ["listContents", "extractFiles"] },
-        { "id": "7zip", "capabilities": ["listContents", "extractFiles"], "default": true },
+        { "id": "7zip", "capabilities": ["listContents", "extractFiles", "splitVolumes"], "default": true },
         { "id": "swc", "capabilities": ["listContents", "extractFiles"] }
       ]
     },
@@ -491,7 +491,7 @@
       ],
       "engines": [
         { "id": "xad", "capabilities": ["listContents", "extractFiles"] },
-        { "id": "7zip", "capabilities": ["listContents", "extractFiles"], "default": true },
+        { "id": "7zip", "capabilities": ["listContents", "extractFiles", "splitVolumes"], "default": true },
         { "id": "swc", "capabilities": ["listContents", "extractFiles"] }
       ]
     },
@@ -606,6 +606,21 @@
     { "id": "7z-numeric", "name": "Split 7z", "format": "7zip", "scheme": "numeric",
       "pattern": "\\.7z\\.[0-9]{3,}$",
       "firstVolume": { "pattern": "\\.[0-9]{3,}$", "replacement": ".001" },
-      "label": ".7z.001" }
+      "label": ".7z.001" },
+
+    { "id": "tar.gz-numeric", "name": "Split tar.gz", "format": "tar", "composition": "tar.gz", "scheme": "numeric",
+      "pattern": "\\.tar\\.gz\\.[0-9]{3,}$",
+      "firstVolume": { "pattern": "\\.[0-9]{3,}$", "replacement": ".001" },
+      "label": ".tar.gz.001" },
+
+    { "id": "tar.xz-numeric", "name": "Split tar.xz", "format": "tar", "composition": "tar.xz", "scheme": "numeric",
+      "pattern": "\\.tar\\.xz\\.[0-9]{3,}$",
+      "firstVolume": { "pattern": "\\.[0-9]{3,}$", "replacement": ".001" },
+      "label": ".tar.xz.001" },
+
+    { "id": "tar.bz2-numeric", "name": "Split tar.bz2", "format": "tar", "composition": "tar.bz2", "scheme": "numeric",
+      "pattern": "\\.tar\\.bz2\\.[0-9]{3,}$",
+      "firstVolume": { "pattern": "\\.[0-9]{3,}$", "replacement": ".001" },
+      "label": ".tar.bz2.001" }
   ]
 }

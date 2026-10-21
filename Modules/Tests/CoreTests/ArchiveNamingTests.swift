@@ -155,9 +155,10 @@ extension AllCoreTests {
                 // spanned needs 2+ digits, numeric needs 3+
                 ("notes.z1", "notes.z1"),
                 ("photo.zip.99", "photo.zip.99"),
-                // numeric scheme is `.zip.NNN` only — a zip alias is not a volume
+                // numeric schemes are `.zip.NNN`, `.7z.NNN` and the compressed
+                // tars' `.tar.gz.NNN` only — an alias is not a volume
                 ("app.apk.001", "app.apk.001"),
-                ("MyArchive.tar.gz.001", "MyArchive.tar.gz.001"),
+                ("MyArchive.tgz.001", "MyArchive.tgz.001"),
                 // trailing plain extension wins; the earlier `.z01` stays in the base
                 ("archive.z01.zip", "archive.z01"),
             ]
@@ -203,12 +204,27 @@ extension AllCoreTests {
             #expect(folderName("photo.7z") == "photo")
         }
 
+        // MARK: - Compressed tar volumes
+
+        /// MacPacker Lab: a compressed tar split into volumes is named like the
+        /// tar it holds — the volume number and the whole extension go.
+        @Test(arguments: ["tar.gz", "tar.xz", "tar.bz2"])
+        func compressedTarVolumeSuffixStripped(format: String) {
+            for part in ["set.\(format).001", "set.\(format).002", "set.\(format).0013"] {
+                #expect(folderName(part) == "set", "\(part)")
+            }
+            #expect(folderName("SET.\(format.uppercased()).004") == "SET")
+            // two digits are not a volume
+            #expect(folderName("photo.\(format).99") == "photo.\(format).99")
+        }
+
         // MARK: - Tripwire
 
         /// Naming samples above are hand-written per scheme (a regex gives no
         /// sample name). A new split entry must arrive with its own cases.
         @Test func everySplitSchemeHasNamingSamples() {
-            #expect(Set(catalog.allSplits().map(\.id)) == ["zip-spanned", "zip-numeric", "7z-numeric"])
+            #expect(Set(catalog.allSplits().map(\.id)) == ["zip-spanned", "zip-numeric", "7z-numeric",
+                                                           "tar.gz-numeric", "tar.xz-numeric", "tar.bz2-numeric"])
         }
     }
 }

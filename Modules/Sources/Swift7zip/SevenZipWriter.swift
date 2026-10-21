@@ -229,8 +229,17 @@ extension SevenZipArchive {
         if options.encrypts {
             throw SevenZipError.writeFailed("A \(options.format.rawValue) can't be locked with a password")
         }
+        let inPlace = source?.standardizedFileURL == destination.standardizedFileURL
+        // The compression pass is what gets split, and it would refuse an older
+        // set by that name only once the tar is made: refused here, before.
         if (options.volumeSize ?? 0) > 0 {
-            throw SevenZipError.writeFailed("A \(options.format.rawValue) can't be split into volumes")
+            if inPlace {
+                throw SevenZipError.writeFailed("An archive can't be split into volumes in place")
+            }
+            if let existing = existingVolume(of: destination) {
+                throw SevenZipError.writeFailed(
+                    "\(existing.lastPathComponent) already exists. Pick another name, or move the old volumes away first.")
+            }
         }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -250,6 +259,7 @@ extension SevenZipArchive {
         tarOptions.dictionarySize = nil
         tarOptions.wordSize = nil
         tarOptions.solidBlockSize = nil
+        tarOptions.volumeSize = nil   // the tar is the compression's input: whole
         // Each pass reports its own bytes: the tar is the first half of the
         // whole, its compression the second.
         let tarTotal = TarTotal()
@@ -265,10 +275,11 @@ extension SevenZipArchive {
         // (Not Store: a compressed tar is compressed, and gzip has no level 0.)
         var packOptions = CompressionOptions(format: options.format, level: max(options.level, 1))
         packOptions.writerFormat = compression
+        // the compressed file is what is cut: the pieces joined are the whole of it
+        packOptions.volumeSize = options.volumeSize
         // Over its own source, the result goes beside it first and takes its
         // place once whole, as an update does: a write that fails part-way
         // leaves the archive as it was.
-        let inPlace = source?.standardizedFileURL == destination.standardizedFileURL
         let output = inPlace ? folder.appendingPathComponent("result." + options.format.rawValue) : destination
         try writeArchive(destination: output,
                          items: [.addFile(archivePath: tar.lastPathComponent, diskPath: tar)],

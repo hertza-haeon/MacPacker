@@ -45,12 +45,13 @@ Then run the MacPacker scheme. It builds as your usual Debug app and shares that
 
 **Speed**
 
-- **7z and xz archives unpack in about a quarter less time on Apple silicon**, with 7-Zip's own ARM64 decoder. The bundled 7-Zip code is unchanged.
+- **7z and xz archives unpack in about a quarter less time on Apple silicon**. MacPacker now uses 7-Zip’s own ARM64 decoder, as 7-Zip’s official builds do. A 900 MB test went from 28.4 s to 21.1 s, the same as the 7zz command-line tool. The bundled 7-Zip code is unchanged, and Intel Macs keep the standard decoder.
 - **Large archives**, measured with 100,000 entries:
-  - Select All no longer freezes the window when the list reloads.
-  - Sorting a big folder is about five times faster.
-  - Search runs in the background, so typing stays smooth.
+  - Select All in a big folder no longer freezes the window for minutes when the list reloads.
+  - Sorting a folder of 100,000 items takes 0.16 s instead of 0.8 s (~5x faster).
+  - Above 5,000 entries, search runs in the background so typing stays smooth.
   - Archives read by XAD open in 1.5 s instead of 5.2 s.
+  - The list reuses its rows and its size and date formatters instead of rebuilding them for every cell.
 
 **Fixes**
 

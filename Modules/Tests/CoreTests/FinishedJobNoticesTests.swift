@@ -63,6 +63,23 @@ extension AllCoreTests {
             #expect(notices.newlyFinished(in: [job], after: 15).map(\.kind) == [.compression])
         }
 
+        /// What the progress center publishes as a job ends — marked done, then
+        /// given its end time, one change at a time — is said once.
+        @MainActor @Test func aJobEndedInTheProgressCenterIsSaidOnce() {
+            let center = ExtractionProgressCenter()
+            var notices = FinishedJobNotices()
+            var said: [UUID] = []
+            let subscription = center.$jobs.sink { jobs in
+                said += notices.newlyFinished(in: jobs, after: 0).map(\.id)
+            }
+            defer { subscription.cancel() }
+
+            let id = center.begin(kind: .test, archiveName: "photos.zip", destination: nil,
+                                  itemCount: 1, totalBytes: nil)
+            center.finish(id, .done)
+            #expect(said == [id])
+        }
+
         /// Several ending together are each said, whatever else is listed.
         @Test func eachJobIsSaidForItself() {
             var notices = FinishedJobNotices()

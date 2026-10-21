@@ -39,10 +39,12 @@ public struct FinishedJobNotices {
     /// about those already.
     public mutating func newlyFinished(in jobs: [ExtractionJob], after minimumDuration: TimeInterval) -> [ExtractionJob] {
         var due: [ExtractionJob] = []
+        // The progress center marks a job done, then gives it its end time,
+        // and both changes are published: a job is looked at once it has both.
         for job in jobs where job.isFinished && !seen.contains(job.id) {
+            guard let end = job.finishedAt else { continue }
             seen.insert(job.id)
             guard job.state != .cancelled,
-                  let end = job.finishedAt,
                   end.timeIntervalSince(job.startedAt) >= minimumDuration else { continue }
             due.append(job)
         }

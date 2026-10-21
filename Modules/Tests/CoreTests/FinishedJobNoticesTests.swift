@@ -2,8 +2,9 @@
 //  FinishedJobNoticesTests.swift
 //  Modules
 //
-//  MacPacker Lab: a job that ran long and ended is said once; a short one,
-//  a stopped one, or one still running is not.
+//  MacPacker Lab: a job that ran at least the chosen duration and ended is
+//  said once; a shorter one, a stopped one, or one still running is not. The
+//  settings read as Settings ▸ General show them.
 //
 
 import Foundation
@@ -34,29 +35,32 @@ extension AllCoreTests {
             var notices = FinishedJobNotices()
             let job = Self.job(ran: 30, ended: state)
 
-            #expect(notices.newlyFinished(in: [job]).map(\.id) == [job.id])
-            #expect(notices.newlyFinished(in: [job]).isEmpty, "said already")
+            #expect(notices.newlyFinished(in: [job], after: 15).map(\.id) == [job.id])
+            #expect(notices.newlyFinished(in: [job], after: 15).isEmpty, "said already")
         }
 
-        @Test func aShortJobIsNotSaid() {
+        /// A job is said from the chosen duration on, not a second sooner.
+        @Test(arguments: FinishedJobNotices.durationChoices)
+        func aJobIsSaidFromTheChosenDurationOn(seconds: Int) {
             var notices = FinishedJobNotices()
-            let job = Self.job(ran: FinishedJobNotices.minimumDuration - 1, ended: .done)
-            #expect(notices.newlyFinished(in: [job]).isEmpty)
+            let short = Self.job(ran: TimeInterval(seconds - 1), ended: .done)
+            let long = Self.job(ran: TimeInterval(seconds), ended: .done)
+            #expect(notices.newlyFinished(in: [short, long], after: TimeInterval(seconds)).map(\.id) == [long.id])
         }
 
         @Test func aStoppedJobIsNotSaid() {
             var notices = FinishedJobNotices()
-            #expect(notices.newlyFinished(in: [Self.job(ran: 60, ended: .cancelled)]).isEmpty)
+            #expect(notices.newlyFinished(in: [Self.job(ran: 60, ended: .cancelled)], after: 15).isEmpty)
         }
 
         @Test func aRunningJobIsSaidOnceItEnds() {
             var notices = FinishedJobNotices()
             var job = Self.job(.compression, ran: 30, ended: .running)
-            #expect(notices.newlyFinished(in: [job]).isEmpty)
+            #expect(notices.newlyFinished(in: [job], after: 15).isEmpty)
 
             job.state = .done
             job.finishedAt = Date()
-            #expect(notices.newlyFinished(in: [job]).map(\.kind) == [.compression])
+            #expect(notices.newlyFinished(in: [job], after: 15).map(\.kind) == [.compression])
         }
 
         /// Several ending together are each said, whatever else is listed.
@@ -65,7 +69,39 @@ extension AllCoreTests {
             let first = Self.job(ran: 20, ended: .done)
             let second = Self.job(.test, ran: 40, ended: .done)
             let running = Self.job(ran: 40, ended: .running)
-            #expect(Set(notices.newlyFinished(in: [first, running, second]).map(\.id)) == [first.id, second.id])
+            #expect(Set(notices.newlyFinished(in: [first, running, second], after: 15).map(\.id)) == [first.id, second.id])
+        }
+
+        /// Untouched, notifications are on, from 15 seconds.
+        @Test func untouchedSettingsAreOnFromFifteenSeconds() {
+            let defaults = isolatedDefaults()
+            #expect(FinishedJobNotices.isOn(in: defaults))
+            #expect(FinishedJobNotices.minimumDuration(in: defaults) == 15)
+        }
+
+        @Test func theChosenSettingsAreRead() {
+            let defaults = isolatedDefaults()
+            defaults.set(false, forKey: Keys.notifyFinishedJobs)
+            defaults.set(60, forKey: Keys.notifyFinishedJobsAfter)
+            #expect(!FinishedJobNotices.isOn(in: defaults))
+            #expect(FinishedJobNotices.minimumDuration(in: defaults) == 60)
+        }
+
+        /// A duration Settings don't offer — the old 10 seconds, say — counts
+        /// as the default.
+        @Test(arguments: [0, 10, 45, 3600])
+        func aDurationNotOfferedCountsAsTheDefault(seconds: Int) {
+            let defaults = isolatedDefaults()
+            defaults.set(seconds, forKey: Keys.notifyFinishedJobsAfter)
+            #expect(FinishedJobNotices.minimumDuration(in: defaults) == TimeInterval(FinishedJobNotices.defaultDuration))
+        }
+
+        /// What the app registers as it starts is what a first launch reads.
+        @Test func theDefaultsAreRegistered() {
+            Keys.registerDefaults()
+            let registered = UserDefaults.standard.volatileDomain(forName: UserDefaults.registrationDomain)
+            #expect(registered[Keys.notifyFinishedJobs] as? Bool == true)
+            #expect(registered[Keys.notifyFinishedJobsAfter] as? Int == FinishedJobNotices.defaultDuration)
         }
     }
 }

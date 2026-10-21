@@ -4,8 +4,9 @@
 //
 //  MacPacker Lab: a notification when a long extraction, compression or test
 //  ends while MacPacker is in the background — which is when nobody is
-//  watching its window. macOS asks the user once whether to allow them, the
-//  first time one is due, and System Settings keeps the answer.
+//  watching its window. Settings ▸ General turn them off and say how long is
+//  long. macOS asks the user once whether to allow them, the first time one is
+//  due, and System Settings keeps the answer.
 //
 
 import AppKit
@@ -26,10 +27,10 @@ final class JobFinishedNotifier {
     }
 
     private func jobsChanged(_ jobs: [ExtractionJob]) {
-        // looked at every time, so a job that ends while the app is in front
-        // is not said later on
-        let due = notices.newlyFinished(in: jobs)
-        guard !due.isEmpty, !NSApp.isActive else { return }
+        // looked at every time, so a job that ends while the app is in front,
+        // or while notifications are off, is not said later on
+        let due = notices.newlyFinished(in: jobs, after: FinishedJobNotices.minimumDuration())
+        guard !due.isEmpty, FinishedJobNotices.isOn(), !NSApp.isActive else { return }
         for job in due {
             post(title: Self.title(of: job), body: Self.body(of: job), id: job.id.uuidString)
         }

@@ -54,7 +54,15 @@ public enum Keys {
     /// once all of it was extracted, from its window or from Finder. Off by
     /// default; on, it does not ask: the Trash is the way back.
     public static let trashArchiveAfterExtraction = "trashArchiveAfterExtraction"
-    
+
+    /// MacPacker Lab: whether a long extraction, compression or test that ends
+    /// while the app is in the background is told in a notification. On by
+    /// default.
+    public static let notifyFinishedJobs = "notifyFinishedJobs"
+    /// MacPacker Lab: how long a job runs, in seconds, before its end is worth
+    /// a notification — one of `FinishedJobNotices.durationChoices`.
+    public static let notifyFinishedJobsAfter = "notifyFinishedJobsAfter"
+
     // table settings
     public static let showParentRow = "showParentRow"
     public static let showColumnCompressedSize = "showColumnCompressedSize"
@@ -106,6 +114,8 @@ public enum Keys {
             dropWindowFloats: true,
             rememberRecentArchives: true,
             openArchivesInTabs: true,
+            notifyFinishedJobs: true,
+            notifyFinishedJobsAfter: FinishedJobNotices.defaultDuration,
         ])
     }
 }

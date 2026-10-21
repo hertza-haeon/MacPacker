@@ -26370,6 +26370,270 @@
         }
       }
     },
+    "labSettingsNotifyAfter": {
+      "comment": "Settings, General pane: label of a menu beside it that picks 15 seconds, 30 seconds or 1 minute (those are written by the system). Only jobs that ran at least that long are notified.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "للمهام التي تستغرق على الأقل"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amb una durada d’almenys"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei einer Dauer von mindestens"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Για εργασίες διάρκειας τουλάχιστον"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For jobs lasting at least"
+          }
+        },
+        "es-mx": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con una duración de al menos"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "برای کارهایی با مدت دست‌کم"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour une durée d’au moins"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per una durata di almeno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最短の所要時間"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최소 소요 시간"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bij een duur van minstens"
+          }
+        },
+        "no": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For jobber som varer minst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przy czasie trwania co najmniej"
+          }
+        },
+        "pt-br": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com duração de pelo menos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При длительности не менее"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En kısa işlem süresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За тривалості щонайменше"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Với tác vụ kéo dài ít nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最短持续时间"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最短持續時間"
+          }
+        }
+      }
+    },
+    "labSettingsNotifyFinishedJobs": {
+      "comment": "Settings, General pane: switch. When on, MacPacker posts a system notification when a long extraction, compression or archive test ends while it is in the background; 'job' means any of these.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإشعار عند انتهاء مهمة طويلة"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisa quan acabi una tasca llarga"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitteilen, wenn ein langer Vorgang endet"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Γνωστοποίηση όταν τελειώνει μια μεγάλη εργασία"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when a long job ends"
+          }
+        },
+        "es-mx": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificar cuando termine una tarea larga"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعلان هنگام پایان یک کار طولانی"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir quand une longue opération se termine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvisa al termine di un’operazione lunga"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長い処理が終わったら通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "긴 작업이 끝나면 알림"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melden wanneer een lange taak klaar is"
+          }
+        },
+        "no": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsle når en lang jobb er ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadamiaj o zakończeniu długiego zadania"
+          }
+        },
+        "pt-br": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificar quando uma tarefa longa terminar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомлять о завершении долгой операции"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun bir işlem bittiğinde bildir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщати про завершення тривалої операції"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thông báo khi một tác vụ dài kết thúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长时间任务完成时通知"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長時間工作完成時通知"
+          }
+        }
+      }
+    },
     "labSettingsOpenInTabs": {
       "comment": "Settings, General pane: switch.",
       "extractionState": "manual",
@@ -29666,6 +29930,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "選單列"
+          }
+        }
+      }
+    },
+    "labSettingsSectionNotifications": {
+      "comment": "Settings window: section heading in the General pane, over the notification settings.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإشعارات"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificacions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitteilungen"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Γνωστοποιήσεις"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "es-mx": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificaciones"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعلان‌ها"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berichtgeving"
+          }
+        },
+        "no": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varslinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia"
+          }
+        },
+        "pt-br": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirimler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thông báo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
           }
         }
       }

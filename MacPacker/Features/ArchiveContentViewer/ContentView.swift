@@ -9,6 +9,16 @@ import AppKit
 import Core
 import SwiftUI
 
+/// MacPacker Lab: on macOS 26 and later `ContentView` draws the band behind the
+/// toolbar and tab bar itself; a fill at the top of the window stays out from
+/// under the bars, or it would cover that band. Before, as SwiftUI does by
+/// default, it reaches up under them.
+enum BarsBand {
+    static var edgesBelowIt: Edge.Set {
+        if #available(macOS 26, *) { [] } else { .all }
+    }
+}
+
 struct ContentView: View {
     // settings
     @AppStorage(Keys.settingBreadcrumbPosition) var breadcrumbPosition: BreadcrumbPosition = .bottom
@@ -26,14 +36,27 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // MacPacker Lab: the band behind the toolbar and tab bar, in every
+            // layout and on the home page too. On macOS 26 and later the window
+            // draws no title bar background of its own (see
+            // `ArchiveWindowController`); the bar material drawn here looks the
+            // same as that background, and brings none of the stale tab separators
+            // back. It had only ever shown with the path bar at the top, whose fill
+            // reached up under the bars.
+            if #available(macOS 26, *) {
+                Color.clear
+                    .frame(height: 0)
+                    .background(.bar, ignoresSafeAreaEdges: .top)
+            }
+
             if breadcrumbPosition == .top {
                 if let selectedItem = archiveState.selectedItem {
-                    BreadcrumbView(for: selectedItem)
+                    BreadcrumbView(for: selectedItem, underBars: true)
                 }
                 
                 Divider()
                     .frame(height: 1)
-                    .background(.quinary)
+                    .background(.quinary, ignoresSafeAreaEdges: BarsBand.edgesBelowIt)
             }
             
             ArchiveView()

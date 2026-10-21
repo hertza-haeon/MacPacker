@@ -39,6 +39,9 @@ struct ExtractionSettingsView: View {
                 } label: {
                     SettingLabel(title: .labSettingsNameClash)
                 }
+                // the label above is a view of its own, which leaves the menu
+                // unnamed for VoiceOver
+                .accessibilityLabel(Text(.labSettingsNameClash))
             } header: {
                 Text(.labSettingsSectionContents)
             } footer: {

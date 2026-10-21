@@ -32,6 +32,9 @@ struct ArchiveWindowSettingsView: View {
                 } label: {
                     SettingLabel(title: .labSettingsPathBar)
                 }
+                // the label above is a view of its own, which leaves the control
+                // unnamed for VoiceOver
+                .accessibilityLabel(Text(.labSettingsPathBar))
                 .pickerStyle(.segmented)
                 .fixedSize()
             } header: {

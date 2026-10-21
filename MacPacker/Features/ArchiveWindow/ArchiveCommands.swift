@@ -48,6 +48,8 @@ struct ArchiveCommands: Commands {
                 Text(.commonSave)
             }
             .keyboardShortcut("s", modifiers: [.command])
+            // MacPacker Lab: greyed out where it would do nothing, as for a rar
+            .disabled(!(front.state.map { $0.canBeEdited && $0.hasPendingChanges && !$0.isSaving } ?? false))
 
             Button {
                 // Save As… always asks for a new location and writes the current
@@ -60,6 +62,7 @@ struct ArchiveCommands: Commands {
                 Text(.commonSaveAs)
             }
             .keyboardShortcut("s", modifiers: [.command, .shift])
+            .disabled(!(front.state.map { $0.canBeEdited && !$0.isSaving } ?? false))
 
             Divider()
 

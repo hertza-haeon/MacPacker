@@ -448,7 +448,10 @@ enum ArchiveSavePanel {
         let options = ArchiveSaveOptions()
         // Save As starts from the archive's own format, a new archive from the
         // format saved last.
-        if let own = state.url.flatMap({ ArchiveSaveOptions.Format(rawValue: $0.pathExtension.lowercased()) }) {
+        // MacPacker Lab: a compressed tar's is its window's — `gz` alone names
+        // no format the writer writes, nor `001` for a set of volumes
+        if let own = state.writtenCompressedTar
+            ?? state.url.flatMap({ ArchiveSaveOptions.Format(rawValue: $0.pathExtension.lowercased()) }) {
             options.format = own
         }
 

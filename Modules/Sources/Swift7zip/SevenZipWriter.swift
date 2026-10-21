@@ -92,6 +92,13 @@ extension SevenZipArchive {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: scratch) }
 
+        // MacPacker Lab: a compressed tar saved as a zip or a 7z gives the files
+        // of its tar — the archive whose numbers the items go by — not the tar
+        // as the one file its gzip holds. (In place it is written as itself.)
+        let read = try inPlace ? source : source.map {
+            try innerTar(of: $0, password: sourcePassword, into: scratch) ?? $0
+        }
+
         // A Save As writes the archive again from its contents: an update copies
         // what it keeps byte for byte, in the source's format and with its old
         // method, whatever `options` say. An encrypted source only when the copy
@@ -100,7 +107,7 @@ extension SevenZipArchive {
         let rebuild: Bool
         do {
             // scoped, so the handle is closed again before anything is written
-            let sourceArchive = try source.map { try SevenZipArchive(url: $0, password: sourcePassword) }
+            let sourceArchive = try read.map { try SevenZipArchive(url: $0, password: sourcePassword) }
             let locked = try sourceArchive?.entries.filter(\.isEncrypted) ?? []
             let encrypted = !locked.isEmpty
             // The source's format, from 7-Zip, which opened it — under the names
@@ -298,8 +305,8 @@ extension SevenZipArchive {
     /// The tar a compressed tar holds, unpacked into `folder`; `nil` when
     /// `archive` is no gzip, xz or bzip2 around a tar — a zip saved as a
     /// tar.gz, say.
-    private static func innerTar(of archive: URL, into folder: URL) throws -> URL? {
-        let opened = try SevenZipArchive(url: archive)
+    private static func innerTar(of archive: URL, password: String? = nil, into folder: URL) throws -> URL? {
+        let opened = try SevenZipArchive(url: archive, password: password)
         guard let name = opened.formatName?.lowercased(), ["gzip", "xz", "bzip2"].contains(name) else { return nil }
         let out = folder.appendingPathComponent("source", isDirectory: true)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)

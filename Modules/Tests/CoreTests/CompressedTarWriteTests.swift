@@ -255,6 +255,161 @@ extension AllCoreTests {
         }
     }
 
+    /// MacPacker Lab: a tar.gz, tar.xz or tar.bz2 window is edited as a zip
+    /// or a 7z one is — what is written is a compressed tar again, of the same
+    /// compression, and Save As to another format takes the tar's files.
+    @MainActor
+    struct CompressedTarEditingTests {
+        /// The format 7-Zip names the compression around the tar by.
+        private static func compression(of format: CompressionOptions.Format) -> String {
+            switch format {
+            case .tarGz: "gzip"
+            case .tarXz: "xz"
+            default: "bzip2"
+            }
+        }
+
+        private func makeState(reading: ZipReader = .sevenZip) -> ArchiveState {
+            let selector: any ArchiveEngineSelectorProtocol =
+                reading == .xad ? ArchiveEngineSelectorXad() : ArchiveEngineSelector7zip()
+            let state = ArchiveState(catalog: ArchiveTypeCatalog(), engineSelector: selector)
+            state.folderAccessProvider = { _ in true }
+            return state
+        }
+
+        /// `a.txt`, `docs/` and `docs/b.txt`, written as `name`.
+        private func compressedTar(_ name: String, _ format: CompressionOptions.Format, in dir: URL) throws -> URL {
+            let docs = dir.appendingPathComponent("src/docs", isDirectory: true)
+            try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+            let a = dir.appendingPathComponent("src/a.txt")
+            let b = docs.appendingPathComponent("b.txt")
+            try Data("hello".utf8).write(to: a)
+            try Data("world".utf8).write(to: b)
+            let archive = dir.appendingPathComponent(name)
+            try SevenZipArchive.writeArchive(destination: archive, items: [
+                .addFile(archivePath: "a.txt", diskPath: a),
+                .addDirectory(archivePath: "docs", diskPath: docs),
+                .addFile(archivePath: "docs/b.txt", diskPath: b),
+            ], options: .init(format: format))
+            return archive
+        }
+
+        /// What macOS's tar lists, directories without their slash.
+        private func listed(_ archive: URL) throws -> Set<String> {
+            Set(try systemTar(["-tf", archive.path]).split(separator: "\n").map {
+                $0.hasSuffix("/") ? String($0.dropLast()) : String($0)
+            })
+        }
+
+        @Test(arguments: [CompressionOptions.Format.tarGz, .tarXz, .tarBz2])
+        func aCompressedTarIsEditedAndSavedInPlace(_ format: CompressionOptions.Format) async throws {
+            let dir = try makeTempDir()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let archive = try compressedTar("out." + format.rawValue, format, in: dir)
+            let state = makeState()
+            state.open(url: archive)
+            try await state.openTask?.value
+            #expect(state.canBeEdited)
+            #expect(state.writtenCompressedTar == format, "what Save As starts from")
+
+            state.remove(items: [try #require(state.entries.values.first { $0.virtualPath == "a.txt" })])
+            let added = dir.appendingPathComponent("c.txt")
+            try Data("added".utf8).write(to: added)
+            #expect(await state.add(url: added).value)
+            await state.save()?.value
+
+            #expect(state.saveError == nil, "\(state.saveError ?? "")")
+            #expect(try listed(archive) == ["docs", "docs/b.txt", "c.txt"])
+            #expect(try SevenZipArchive(url: archive).formatName?.lowercased() == Self.compression(of: format))
+            #expect(state.entries.values.contains { $0.virtualPath == "c.txt" }, "the window shows what was saved")
+            #expect(state.canBeEdited, "and can still be edited")
+        }
+
+        /// The compression is the archive's, not the name's: a `.tgz` is
+        /// written as a gzip again, not as whatever a `tgz` name would make.
+        @Test func aShortNamedCompressedTarKeepsItsCompression() async throws {
+            let dir = try makeTempDir()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let written = try compressedTar("out.tar.gz", .tarGz, in: dir)
+            let archive = dir.appendingPathComponent("out.tgz")
+            try FileManager.default.moveItem(at: written, to: archive)
+            let state = makeState()
+            state.open(url: archive)
+            try await state.openTask?.value
+            state.remove(items: [try #require(state.entries.values.first { $0.virtualPath == "a.txt" })])
+            await state.save()?.value
+
+            #expect(state.saveError == nil, "\(state.saveError ?? "")")
+            #expect(try SevenZipArchive(url: archive).formatName?.lowercased() == "gzip")
+            #expect(try listed(archive) == ["docs", "docs/b.txt"])
+        }
+
+        /// Save As to a zip takes the files in the tar — not the tar as one file.
+        @Test(arguments: [CompressionOptions.Format.zip, .sevenZ])
+        func aCompressedTarIsSavedAsAnotherFormatWithItsFiles(_ target: CompressionOptions.Format) async throws {
+            let dir = try makeTempDir()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let state = makeState()
+            state.open(url: try compressedTar("out.tar.xz", .tarXz, in: dir))
+            try await state.openTask?.value
+            let copy = dir.appendingPathComponent("copy." + target.rawValue)
+            await state.save(to: copy, options: .init(format: target))?.value
+
+            #expect(state.saveError == nil, "\(state.saveError ?? "")")
+            let files = try SevenZipArchive(url: copy).entries.filter { !$0.isDirectory }.map(\.path)
+            #expect(Set(files).isSuperset(of: ["a.txt", "docs/b.txt"]), "\(files)")
+            #expect(!files.contains("out.tar"), "\(files)")
+        }
+
+        /// As for a zip or a 7z set: no Save over the first volume, Save As as usual.
+        @Test func aSplitCompressedTarIsSavedElsewhereOnly() async throws {
+            let dir = try makeTempDir()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let base = dir.appendingPathComponent("set.tar.gz")
+            try SevenZipArchive.writeArchive(destination: base, items: [
+                .addData(archivePath: "noise.bin", data: noise(bytes: 150_000)),
+                .addData(archivePath: "note.txt", data: Data("note".utf8)),
+            ], options: .init(format: .tarGz, volumeSize: 64 << 10))
+            let parts = try volumes(of: base)
+            let before = try parts.map { try Data(contentsOf: $0) }
+            let state = makeState()
+            state.open(url: parts[0])
+            try await state.openTask?.value
+            #expect(state.canBeEdited)
+            #expect(state.writtenCompressedTar == .tarGz, "a set's name ends in `001`")
+
+            state.remove(items: [try #require(state.entries.values.first { $0.virtualPath == "note.txt" })])
+            await state.save()?.value
+            #expect(state.saveError?.contains("split into volumes") == true, "\(state.saveError ?? "saved")")
+            #expect(try volumes(of: base).map { try Data(contentsOf: $0) } == before)
+
+            let whole = dir.appendingPathComponent("whole.tar.gz")
+            await state.save(to: whole, options: .init(format: .tarGz))?.value
+            #expect(state.saveError == nil, "\(state.saveError ?? "")")
+            #expect(try listed(whole) == ["noise.bin"])
+        }
+
+        /// A plain tar has no writer here, and a tar.gz XAD listed has XAD's
+        /// numbers for its entries, which 7-Zip's writer would take for others.
+        @Test func aPlainTarAndOneXADReadStayReadOnly() async throws {
+            let dir = try makeTempDir()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let gz = try compressedTar("out.tar.gz", .tarGz, in: dir)
+            let tar = dir.appendingPathComponent("plain.tar")
+            try systemTar(["-cf", tar.path, "-C", dir.appendingPathComponent("src").path, "a.txt"])
+
+            let plain = makeState()
+            plain.open(url: tar)
+            try await plain.openTask?.value
+            #expect(plain.hasArchive && !plain.canBeEdited)
+
+            let xad = makeState(reading: .xad)
+            xad.open(url: gz)
+            try await xad.openTask?.value
+            #expect(xad.hasArchive && !xad.canBeEdited)
+        }
+    }
+
     struct CompressedTarNameTests {
         @Test(arguments: [
             ("photos.tar.gz", "photos"),

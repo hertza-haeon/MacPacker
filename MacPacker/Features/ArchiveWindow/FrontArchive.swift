@@ -56,6 +56,7 @@ final class FrontArchive: ObservableObject {
                 state.$url.map { _ in () }.eraseToAnyPublisher(),
                 state.$isBusy.map { _ in () }.eraseToAnyPublisher(),
                 state.$isSaving.map { _ in () }.eraseToAnyPublisher(),
+                state.$canBeEdited.map { _ in () }.eraseToAnyPublisher(),
                 state.$diff.map { _ in () }.eraseToAnyPublisher(),
             ])
             .sink { [weak self] in self?.objectWillChange.send() }

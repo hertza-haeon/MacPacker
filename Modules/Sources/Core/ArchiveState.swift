@@ -1007,7 +1007,11 @@ extension ArchiveState {
         // name is which format's is the catalog's to say — a `jar` is a zip. A
         // name that says nothing is written as a new archive starts out. For a
         // Save in place neither matters: the writer asks 7-Zip what the archive is.
-        let format = CompressionOptions.Format.compressedTar(named: target.lastPathComponent)
+        // MacPacker Lab: in place, a compressed tar keeps its compression, which
+        // its name may not say (`x.tgz`); the writer can't ask 7-Zip, which
+        // sees the gzip and not the tar its entries are numbered in.
+        let format = (destination == nil ? writtenCompressedTar : nil)
+            ?? CompressionOptions.Format.compressedTar(named: target.lastPathComponent)
             ?? catalog.writtenFormat(forExtension: target.pathExtension) ?? .newArchive
         let saver = ArchiveSaver(
             source: url,
@@ -1147,6 +1151,12 @@ extension ArchiveState {
         hasArchive && url != nil && !isBusy && !isSaving && !hasPendingChanges
     }
 
+    /// MacPacker Lab: the compressed tar the window shows, under the format the
+    /// writer writes it as; `nil` for any other archive (and a tar.lz4).
+    public var writtenCompressedTar: CompressionOptions.Format? {
+        compositionType.flatMap { CompressionOptions.Format(rawValue: $0.id) }
+    }
+
     /// MacPacker Lab: opens the window's archive again, its names read in
     /// `encoding`; `nil` reads them as the engine does.
     public func reopen(withNameEncoding encoding: String.Encoding?) {
@@ -1220,7 +1230,10 @@ extension ArchiveState {
                 // them. XAD only reads, and 7-Zip's writer would take its numbers
                 // for other entries.
                 if let type, let used = loaderResult.engineType,
-                   type.engines.contains(where: { $0.id == used.configId && $0.canEdit }),
+                   type.engines.contains(where: { $0.id == used.configId && $0.canEdit })
+                    // MacPacker Lab: and a tar.gz, tar.xz or tar.bz2 whose tar
+                    // 7-Zip listed — its writer writes them again
+                    || (writtenCompressedTar != nil && used == .`7zip`),
                    // MacPacker Lab: nor with names read in a chosen encoding,
                    // which are not the names the archive stores
                    nameEncoding == nil {

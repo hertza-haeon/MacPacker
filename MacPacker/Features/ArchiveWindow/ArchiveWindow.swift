@@ -24,6 +24,11 @@ class ArchiveWindowController: NSWindowController, NSWindowDelegate {
     private let openNewTab: @MainActor @Sendable () -> Void
 
     private var cancellables = Set<AnyCancellable>()
+
+    /// MacPacker Lab: whether this window shows its tab bar (see `followTabBar`).
+    let tabBarPresence = TabBarPresence()
+    private weak var followedTabGroup: NSWindowTabGroup?
+    private var tabBarObservation: NSKeyValueObservation?
     
     init(
         archiveState: ArchiveState,
@@ -77,7 +82,8 @@ class ArchiveWindowController: NSWindowController, NSWindowDelegate {
             .environment(\.openNewTab, openNewTab)
             .environment(\.openQuickCompressWindow, openQuickCompressWindow)
 
-        window.contentView = NSHostingView(rootView: contentView)
+        window.contentView = NSHostingView(rootView: TabBarAware(presence: tabBarPresence, content: contentView))
+        followTabBar()
 
         // native unsaved-changes affordance: the close button shows a dot while
         // there are pending edits (mirrors NSDocument's isDocumentEdited)
@@ -171,6 +177,56 @@ class ArchiveWindowController: NSWindowController, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         archiveState.clean()
         willCloseHandler?()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) { followTabBar() }
+
+    /// MacPacker Lab: keeps `tabBarPresence` in step with the tab bar of this
+    /// window's tab group. A window changes group when a tab is dragged out or
+    /// windows are merged, so the group is looked up again whenever the window
+    /// becomes key.
+    private func followTabBar() {
+        guard let group = window?.tabGroup, group !== followedTabGroup else { return }
+        followedTabGroup = group
+        tabBarObservation = group.observe(\.isTabBarVisible, options: [.initial, .new]) { [weak self] group, _ in
+            let shown = group.isTabBarVisible
+            MainActor.assumeIsolated { self?.tabBarPresence.show(shown) }
+        }
+    }
+}
+
+/// MacPacker Lab: whether a window shows its tab bar, for the home screen (see
+/// `HomeView.clearanceBelowBars`). It shows at once, and hides only once the
+/// tab bar's closing animation is over, so the page doesn't run under the bars
+/// while the last separators are still moving.
+@MainActor
+final class TabBarPresence: ObservableObject {
+    @Published private(set) var isShown = false
+    private var pendingHide: Task<Void, Never>?
+
+    func show(_ shown: Bool) {
+        pendingHide?.cancel()
+        pendingHide = nil
+        if shown {
+            if !isShown { isShown = true }
+            return
+        }
+        guard isShown else { return }
+        pendingHide = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            self?.isShown = false
+        }
+    }
+}
+
+/// MacPacker Lab: hands the window's tab bar state down to its content.
+private struct TabBarAware<Content: View>: View {
+    @ObservedObject var presence: TabBarPresence
+    let content: Content
+
+    var body: some View {
+        content.environment(\.windowShowsTabBar, presence.isShown)
     }
 }
 

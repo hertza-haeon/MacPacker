@@ -42,7 +42,6 @@ extension AppUrlHandler {
         // source-folder access itself, via the provider — like a password.
         let state = ArchiveState(catalog: catalog, engineSelector: engineSelector)
         state.folderAccessProvider = { await FolderAccessStore.shared.ensureAccess(forFileIn: $0) }
-        state.nameClash = { NameClash.current() }
         state.open(url: archive)
         do {
             try await state.openTask?.value

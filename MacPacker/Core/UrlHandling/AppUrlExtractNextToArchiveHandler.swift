@@ -52,7 +52,6 @@ class AppUrlExtractNextToArchiveHandler: AppUrlHandler {
     private func extractEntries(_ paths: [String], of archive: URL, into destination: URL, smart: Bool) async -> [URL] {
         let state = ArchiveState(catalog: catalog, engineSelector: engineSelector)
         state.folderAccessProvider = { await FolderAccessStore.shared.ensureAccess(forFileIn: $0) }
-        state.nameClash = { NameClash.current() }
         state.open(url: archive)
         do {
             try await state.openTask?.value

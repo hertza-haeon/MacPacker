@@ -170,10 +170,6 @@ public class ArchiveState: ObservableObject {
     var scanFiles: @Sendable ([URL], String, ExtractionCancelFlag) async throws -> FileScan = { urls, base, cancel in
         try await FileScanner().scan(urls, under: base, cancel: cancel)
     }
-    /// What an extraction does with an item whose name is taken where it goes,
-    /// read as each extraction starts. Replacing, the engines' way, unless the
-    /// app hands in its setting (`NameClash.current`).
-    public var nameClash: () -> NameClash = { .replace }
     /// Where user-triggered extractions report their progress. Defaults to
     /// the app-wide center that feeds the extraction progress window;
     /// tests inject their own instance.
@@ -1724,8 +1720,7 @@ extension ArchiveState {
             passwordResolver: makePasswordResolver(),
             onTempDirectoryCreated: { url in
                 tempDirs.add(url)
-            },
-            nameClash: nameClash()
+            }
         )
         let batchResolver = ArchiveBatchResolver()
 
@@ -1749,42 +1744,25 @@ extension ArchiveState {
                 // The smart folder is created below, before the extractor starts
                 // access on it — so the user-picked destination has to be held
                 // accessible from here on, or the directory creation fails for
-                // sandboxed destinations.
-                let didAccessDestination = destination.startAccessingSecurityScopedResource()
-                defer { if didAccessDestination { destination.stopAccessingSecurityScopedResource() } }
+                // sandboxed destinations. A folder granted on an earlier launch
+                // is reached through its stored bookmark: on its own, the plain
+                // url grants nothing.
+                let scopedDestination = Sandbox.securityScopedURL(for: destination) ?? destination
+                let didAccessDestination = scopedDestination.startAccessingSecurityScopedResource()
+                defer { if didAccessDestination { scopedDestination.stopAccessingSecurityScopedResource() } }
 
                 var target = destination
-                if smart, coversWholeArchive(items) {
-                    let archiveUrl = url
-                    target = SmartExtraction.containerFolder(
-                        for: entries,
-                        archiveName: archiveUrl.map { archiveTypeDetector.getNameWithoutExtension(for: $0) } ?? "Archive",
-                        destination: destination
-                    ) ?? destination
-                    if target != destination {
-                        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-                    }
+                if smart, coversWholeArchive(items), SmartExtraction.needsContainer(entries) {
+                    let archiveName = url.map { archiveTypeDetector.getNameWithoutExtension(for: $0) } ?? "Archive"
+                    target = destination.appending(
+                        component: SmartExtraction.freeName(archiveName, in: destination, isDirectory: true))
+                    try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
                 }
-                let result: MultiExtractionResult
-                do {
-                    result = try await extractor.extract(
-                        batches: batches,
-                        to: target,
-                        onProgress: makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
-                    )
-                } catch {
-                    // The items come through a temp folder, so a run that does
-                    // not finish has put none of them into the destination —
-                    // but the container made for them above would stay. It is
-                    // new with this run, under a name nothing else had, so
-                    // whatever is in it is this run's own. Taken back here
-                    // rather than in the handlers below: by then access to the
-                    // destination has ended.
-                    if target != destination {
-                        try? FileManager.default.removeItem(at: target)
-                    }
-                    throw error
-                }
+                let result = try await extractor.extract(
+                    batches: batches,
+                    to: target,
+                    onProgress: makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
+                )
                 // A Cancel the engine did not see, too late for it or never
                 // looked for, still ends the run as cancelled.
                 try Task.checkCancellation()
@@ -1838,7 +1816,6 @@ extension ArchiveState {
         )
 
         let cancelFlag = ExtractionCancelFlag()
-        let clash = nameClash()
         let task = Task { () -> ExtractionJob.State in
             let outcome: ExtractionJob.State
             do {
@@ -1849,70 +1826,37 @@ extension ArchiveState {
                     throw ArchiveError.extractionFailed("No archive handler found")
                 }
 
-                // The work folder is created in the destination before the
-                // extractor starts access on it, and the result is moved into
-                // place after the extractor has let go of it — so the
-                // user-picked destination has to be held accessible from here
-                // on, or both fail for sandboxed destinations.
-                let didAccessDestination = destination.startAccessingSecurityScopedResource()
-                defer { if didAccessDestination { destination.stopAccessingSecurityScopedResource() } }
+                // The extractor creates its own folder in the destination before
+                // it starts access on it — so the user-picked destination has to
+                // be held accessible from here on, or that fails for sandboxed
+                // destinations. A folder granted on an earlier launch is reached
+                // through its stored bookmark: on its own, the plain url grants
+                // nothing.
+                let scopedDestination = Sandbox.securityScopedURL(for: destination) ?? destination
+                let didAccessDestination = scopedDestination.startAccessingSecurityScopedResource()
+                defer { if didAccessDestination { scopedDestination.stopAccessingSecurityScopedResource() } }
 
                 // Folder name from the archive file, extension stripped —
                 // compounds (tar.gz) and split parts included — so it matches
                 // the "Extract to …" folder naming.
-                let archiveName = archiveTypeDetector.getNameWithoutExtension(for: archiveUrl)
+                let containerName = smart && SmartExtraction.needsContainer(entries)
+                    ? archiveTypeDetector.getNameWithoutExtension(for: archiveUrl)
+                    : nil
 
-                // The engine writes into a work folder inside the destination,
-                // not into the destination itself: what a run that is cancelled
-                // or fails has written by then goes with that folder, and the
-                // destination is as it was. See `ExtractionStaging`.
-                let staging = try ExtractionStaging(in: destination, named: archiveName)
-                // …and Finder shows the run on that folder while it lasts.
-                let inFinder = ExtractionFinderProgress(
-                    on: staging.workFolder,
-                    totalBytes: (uncompressedSize ?? 0) > 0 ? uncompressedSize : nil)
-                let engineProgress = makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
                 let extractor = ArchiveExtractor(
                     archiveEngineSelector: effectiveEngineSelector,
                     passwordResolver: makePasswordResolver()
                 )
-                do {
-                    try await extractor.extractAll(
-                        archiveUrl,
-                        archiveTypeId: archiveTypeId,
-                        to: staging.workFolder,
-                        onProgress: { completed, total in
-                            inFinder.report(completed: completed, total: total)
-                            return engineProgress(completed, total)
-                        }
-                    )
-                    // A cancel that arrives as the engine finishes finds
-                    // nothing left to stop, and the engine returns as if all
-                    // were well. The run is cancelled all the same: nothing of
-                    // it has reached the destination yet, and nothing will.
-                    try Task.checkCancellation()
-                    // Decided only now: the container is the work folder
-                    // renamed, so a run that never gets here leaves no empty
-                    // one behind, and it takes the name that is free when the
-                    // result arrives.
-                    let container = smart
-                        ? SmartExtraction.containerFolder(
-                            for: entries,
-                            archiveName: archiveName,
-                            destination: destination)
-                        : nil
-                    // The indicator is tied to the work folder where it is, so
-                    // it comes down before that folder moves.
-                    inFinder.end()
-                    // Renames, as a rule — but extracting over what is already
-                    // there walks both trees, and that is not for the main actor.
-                    try await runBlocking { @Sendable in try staging.commit(as: container, clash: clash) }
-                } catch {
-                    inFinder.end()
-                    // nor is removing half an archive
-                    try? await runBlocking { @Sendable in staging.discard() }
-                    throw error
-                }
+                try await extractor.extractAll(
+                    archiveUrl,
+                    archiveTypeId: archiveTypeId,
+                    to: destination,
+                    containerName: containerName,
+                    onProgress: makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
+                )
+                // A Cancel the engine did not see, too late for it or never
+                // looked for, still ends the run as cancelled.
+                try Task.checkCancellation()
                 outcome = .done
             } catch is CancellationError {
                 outcome = .cancelled

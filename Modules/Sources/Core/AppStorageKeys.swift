@@ -58,9 +58,24 @@ public enum Keys {
     /// MacPacker Lab: how long a job runs, in seconds, before its end is worth
     /// a notification — one of `FinishedJobNotices.durationChoices`.
     public static let notifyFinishedJobsAfter = "notifyFinishedJobsAfter"
+    
+    /// Whether an archive opened from Finder — a double click, Open With — is
+    /// extracted next to itself, as Extract Here does, instead of opened in a
+    /// window (#280). Off by default.
+    public static let extractOnOpen = "extractOnOpen"
 
     // table settings
     public static let showParentRow = "showParentRow"
+    /// Whether the archive window and Quick Look list the files Finder hides,
+    /// greyed out as Finder shows them. Off by default (#304).
+    public static let showHiddenFiles = "showHiddenFiles"
+
+    /// `showHiddenFiles`, read from the app group so the Quick Look extension
+    /// sees what the app wrote. Unset is off.
+    public static func showHiddenFilesEnabled(in defaults: UserDefaults = .macPackerShared) -> Bool {
+        defaults.bool(forKey: showHiddenFiles)
+    }
+
     public static let showColumnCompressedSize = "showColumnCompressedSize"
     public static let showColumnUncompressedSize = "showColumnUncompressedSize"
     public static let showColumnModificationDate = "showColumnModificationDate"

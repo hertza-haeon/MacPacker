@@ -19,6 +19,8 @@ final class MacPackerUITests: XCTestCase {
     private let appUrlScheme = "app.macpacker.debug"
     /// `Keys.quitOnLastWindowClosed`; as a launch argument it overrides the setting.
     private let quitOnLastWindowClosedKey = "quitOnLastWindowClosed"
+    /// `Keys.extractOnOpen`, likewise.
+    private let extractOnOpenKey = "extractOnOpen"
 
     /// Fixture area: the runner's home (its own container under XCUITest).
     /// The app under test can READ here but not write — saving triggers the
@@ -94,10 +96,16 @@ final class MacPackerUITests: XCTestCase {
             URLQueryItem(name: "files", value: files.compactMap(encode).joined(separator: ",")),
             URLQueryItem(name: "target", value: encode(target)),
         ]
+        return launchApp(opening: comps.url!, arguments: arguments)
+    }
+
+    /// Launches the app with `url` as its launch event: a Finder action's url,
+    /// or a file as a double click in Finder hands it over.
+    private func launchApp(opening url: URL, arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.terminate()
         app.launchArguments = arguments + ["-DisableUpdateChecks", "YES"]
-        app.open(comps.url!)
+        app.open(url)
         return app
     }
 
@@ -315,6 +323,58 @@ final class MacPackerUITests: XCTestCase {
         }
     }
 
+    /// With "Extract archives on open" on, opening an archive from Finder
+    /// extracts it next to itself, as Extract Here does. No window comes up
+    /// for it, and the app that was started for it is gone again when it is
+    /// done (#280).
+    func testOpeningAnArchiveExtractsItNextToItself() throws {
+        let dir = try makeWorkDir("extract-on-open")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // the archive holds a folder of its own, so it lands in it whether
+        // smart extraction is on or off: that setting lives in the app group,
+        // out of reach of launch arguments
+        let folder = dir.appendingPathComponent("fixture")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for name in ["one.txt", "two.txt"] {
+            try name.write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        let zip = dir.appendingPathComponent("fixture.zip")
+        try run("/usr/bin/zip", ["-r", zip.path, "fixture"], cwd: dir)
+        try FileManager.default.removeItem(at: folder)
+
+        let app = launchApp(opening: zip, arguments: ["-\(extractOnOpenKey)", "YES"])
+
+        confirmAccessPanel(app, button: "Grant Access")
+        XCTAssertTrue(waitForFile(dir.appendingPathComponent("fixture/one.txt")), "fixture.zip was not extracted next to itself")
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 10), "the app stayed after extracting")
+    }
+
+    /// An encrypted archive opened that way asks for its password with the
+    /// same prompt the archive window shows, then extracts. Without a window
+    /// for that prompt it used to fail with "Open it in MacPacker to enter
+    /// the password", and opening it extracts it again (#280).
+    func testOpeningAnEncryptedArchiveAsksForItsPassword() throws {
+        let dir = try makeWorkDir("extract-on-open-password")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let payload = dir.appendingPathComponent("secret.txt")
+        try "secret".write(to: payload, atomically: true, encoding: .utf8)
+        let zip = dir.appendingPathComponent("locked.zip")
+        try run("/usr/bin/zip", ["-P", "password", zip.path, "secret.txt"], cwd: dir)
+        try FileManager.default.removeItem(at: payload)
+
+        let app = launchApp(opening: zip, arguments: ["-\(extractOnOpenKey)", "YES"])
+
+        confirmAccessPanel(app, button: "Grant Access")
+        let password = app.windows.secureTextFields.firstMatch
+        XCTAssertTrue(password.waitForExistence(timeout: 10), "no password prompt")
+        password.click()
+        password.typeText("password")
+        app.typeKey(.return, modifierFlags: [])
+
+        XCTAssertTrue(waitForFile(payload), "secret.txt was not extracted")
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 10), "the app stayed after extracting")
+    }
+
     /// An empty window shows the home screen, lists the archives opened before,
     /// and opening one from that list loads it in that very window — unless
     /// another window has it open already: that one comes forward (#256).
@@ -415,6 +475,46 @@ final class MacPackerUITests: XCTestCase {
         let search = app.windows.searchFields["archive.searchField"]
         XCTAssertTrue(search.waitForExistence(timeout: 10),
                       "the toolbar search field does not publish archive.searchField")
+        app.terminate()
+    }
+
+    /// A `.DS_Store` stays out of the archive window, as in Finder, until
+    /// Settings ▸ General ▸ Show hidden files is on — and a window already open
+    /// follows the setting (#304). Shown, it is greyed out, which only a look at
+    /// the screen tells: the test keeps a screenshot.
+    func testShowHiddenFilesSettingReachesAnOpenWindow() throws {
+        let dir = try makeWorkDir("hidden")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try "one".write(to: dir.appendingPathComponent("one.txt"), atomically: true, encoding: .utf8)
+        try "finder".write(to: dir.appendingPathComponent(".DS_Store"), atomically: true, encoding: .utf8)
+        let zip = dir.appendingPathComponent("fixture.zip")
+        try run("/usr/bin/zip", ["-X", zip.path, "one.txt", ".DS_Store"], cwd: dir)
+
+        let app = launchApp(arguments: ["-ArchivePath", zip.path])
+        XCTAssertTrue(app.staticTexts["one.txt"].waitForExistence(timeout: 15), "archive did not load")
+
+        app.typeKey(",", modifierFlags: .command)
+        // Spelled out, as AccessibilityIdentifier.showHiddenFilesSetting.
+        let setting = app.descendants(matching: .any).matching(identifier: "settings.showHiddenFiles").firstMatch
+        XCTAssertTrue(setting.waitForExistence(timeout: 10), "no Show hidden files setting")
+        XCTAssertFalse(setting.label.isEmpty, "the setting has no name for VoiceOver")
+        // The setting lives in the app group, so what this Mac chose last leaks
+        // in. A launch argument cannot pin it: it would win over the toggle too.
+        if isOn(setting) { setting.click() }
+        XCTAssertTrue(app.staticTexts[".DS_Store"].waitForNonExistence(timeout: 10),
+                      "the open window lists the hidden file while the setting is off")
+
+        setting.click()
+        XCTAssertTrue(app.staticTexts[".DS_Store"].waitForExistence(timeout: 10),
+                      "the open window does not list the hidden file once the setting is on")
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "hidden files shown"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        setting.click()
+        XCTAssertTrue(app.staticTexts[".DS_Store"].waitForNonExistence(timeout: 10),
+                      "the open window still lists the hidden file once the setting is off")
         app.terminate()
     }
 

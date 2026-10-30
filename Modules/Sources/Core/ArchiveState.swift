@@ -88,7 +88,20 @@ public class ArchiveState: ObservableObject {
     // Live filter over the whole archive. While non-empty, the table shows
     // every entry whose name matches instead of the current folder.
     @Published private(set) public var searchText: String = ""
-    
+
+    /// Whether the files Finder hides are listed. Starts from the setting; an
+    /// open window follows the setting as it changes.
+    public var showsHiddenFiles = Keys.showHiddenFilesEnabled() {
+        didSet {
+            guard showsHiddenFiles != oldValue else { return }
+            log.info("Hidden files shown changed", context: ["shown": "\(showsHiddenFiles)"])
+            // a selected file the list no longer shows would still be extracted
+            selectedItems = []
+            loadChildren()
+            isReloadNeeded = true
+        }
+    }
+
     // UI State
     @Published private(set) public var isBusy: Bool = false
     @Published private(set) public var statusText: String? = nil
@@ -255,9 +268,9 @@ extension ArchiveState {
     /// How a `passwordCancelled` should be reported.
     ///
     /// Dismissing the prompt is the user's own choice, so the job just ends as
-    /// cancelled. Having no prompt at all is different: Finder's "Extract Here"
-    /// and QuickLook build an ArchiveState with no `passwordProvider`, so an
-    /// encrypted archive used to fail there with nothing shown and nothing
+    /// cancelled. Having no prompt at all is different: an ArchiveState built
+    /// with no `passwordProvider`, as Finder's "Extract Here" and QuickLook once
+    /// were, used to fail on an encrypted archive with nothing shown and nothing
     /// extracted. That needs to be a failure with a message that says what to do.
     private func passwordCancelledOutcome() -> ExtractionJob.State {
         guard passwordProvider == nil else { return .cancelled }
@@ -438,7 +451,7 @@ extension ArchiveState {
         let entries = self.entries
         let keys = entries.values.map(ArchiveItemKey.init)
         let matches = ArchiveListOrder.current.searched(keys, for: searchText) ?? []
-        return matches.compactMap { entries[$0.id] }
+        return listed(matches.compactMap { entries[$0.id] }, in: entries)
     }
 
     /// The results of a large archive's search, worked out on a snapshot of
@@ -454,7 +467,7 @@ extension ArchiveState {
             let matches = await Self.search(keys, for: text, order: .current)
             guard !Task.isCancelled, let matches, self.searchText == text else { return }
             let entries = self.entries
-            self.childItems = matches.compactMap { entries[$0.id] }
+            self.childItems = self.listed(matches.compactMap { entries[$0.id] }, in: entries)
             self.isReloadNeeded = true
         }
     }
@@ -464,6 +477,44 @@ extension ArchiveState {
         _ keys: [ArchiveItemKey], for text: String, order: ArchiveListOrder
     ) async -> [ArchiveItemKey]? {
         order.searched(keys, for: text)
+    }
+
+    /// Whether `item` is hidden, or inside a folder that is. A search over all
+    /// entries would find what hidden folders hold; browsing does not list
+    /// them, though a window already inside one stays there.
+    private func isInHiddenPath(_ item: ArchiveItem) -> Bool {
+        var node: ArchiveItem? = item
+        while let current = node, current.type != .root {
+            if current.isHidden { return true }
+            node = current.parent.flatMap { entries[$0] }
+        }
+        return false
+    }
+
+    /// The children of `node` the list shows: all of them, or all but the
+    /// hidden ones. The archive window and the Quick Look outline both list
+    /// through this.
+    public func listedChildren(of node: ArchiveItem) -> [ArchiveItem] {
+        // MacPacker Lab: read once — through its publisher, each read of
+        // `entries` costs, and a folder of 100,000 took 54 ms to look up
+        let entries = self.entries
+        let children = (node.children ?? []).compactMap { entries[$0] }
+        return showsHiddenFiles ? children : children.filter { !$0.isHidden }
+    }
+
+    /// MacPacker Lab: search results the list shows — all of them, or all but
+    /// those in a hidden folder or hidden themselves — in the order given.
+    /// `entries` is read once by the caller.
+    private func listed(_ items: [ArchiveItem], in entries: [UUID: ArchiveItem]) -> [ArchiveItem] {
+        guard !showsHiddenFiles else { return items }
+        return items.filter { item in
+            var node: ArchiveItem? = item
+            while let current = node, current.type != .root {
+                if current.isHidden { return false }
+                node = current.parent.flatMap { entries[$0] }
+            }
+            return true
+        }
     }
 
     public func loadChildren() {
@@ -480,17 +531,13 @@ extension ArchiveState {
         // a search still under way is not shown once it is left
         searchTask?.cancel()
 
-        // MacPacker Lab: read once — through its publisher, each read of
-        // `entries` costs, and a folder of 100,000 took 54 ms to look up
-        let entries = self.entries
+        let children = listedChildren(of: selectedItem)
         guard UserDefaults.standard.string(forKey: Keys.defaultOrderColumn) != nil else {
-            childItems = selectedItem.children?.compactMap { entries[$0] }
+            childItems = children
             return
         }
 
-        if let children = selectedItem.children?.compactMap({ entries[$0] }) {
-            childItems = sortedForDisplay(children)
-        }
+        childItems = sortedForDisplay(children)
     }
 
     private func sortedForDisplay(_ items: [ArchiveItem]) -> [ArchiveItem] {
@@ -1683,11 +1730,13 @@ extension ArchiveState {
 
     /// True when `items` selects every top-level entry of the archive — the
     /// selection is the whole archive, so extraction behaves like
-    /// "Extract archive" and the smart folder rule applies.
+    /// "Extract archive" and the smart folder rule applies. Hidden files the
+    /// list leaves out cannot be selected, so they are not asked for.
     private func coversWholeArchive(_ items: [ArchiveItem]) -> Bool {
         guard let root else { return false }
         let topLevel = entries.values.filter {
-            $0.parent == root.id || ($0.parent == nil && $0.type != .root)
+            ($0.parent == root.id || ($0.parent == nil && $0.type != .root))
+                && (showsHiddenFiles || !$0.isHidden)
         }
         guard !topLevel.isEmpty else { return false }
         let selectedIDs = Set(items.map(\.id))

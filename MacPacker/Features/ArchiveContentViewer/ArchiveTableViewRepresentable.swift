@@ -191,6 +191,9 @@ struct ArchiveTableViewRepresentable: NSViewRepresentable {
                 cellView = cell
             }
             cellView.backgroundStyle = .raised
+            // greyed out, as Finder shows a hidden file — on every cell, as a
+            // reused one may have shown a hidden file before
+            cellView.alphaValue = item.isHidden ? 0.5 : 1
 
             return cellView
         }

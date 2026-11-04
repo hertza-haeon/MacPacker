@@ -121,11 +121,6 @@ public class ArchiveState: ObservableObject {
     /// MacPacker Lab: what the last "Test Archive" found, until the user has
     /// seen it. A test that was stopped leaves none.
     @Published private(set) public var testResult: ArchiveTestResult? = nil
-    /// MacPacker Lab: the encoding the user chose for the archive's names;
-    /// `nil` reads them as the engine does. Back to `nil` with each archive
-    /// opened, and kept by `reopen(withNameEncoding:)`.
-    @Published private(set) public var nameEncoding: String.Encoding? = nil
-
     /// MacPacker Lab: above this many entries, a search waits for a pause
     /// in typing and runs off the main actor: on 100,000 entries each
     /// keystroke had held the window for up to a second.
@@ -157,12 +152,9 @@ public class ArchiveState: ObservableObject {
 
     /// The selector everything downstream should use.
     private var effectiveEngineSelector: ArchiveEngineSelectorProtocol {
-        let selector: ArchiveEngineSelectorProtocol = pinnedEngines.isEmpty
+        pinnedEngines.isEmpty
             ? archiveEngineSelector
             : AutomaticEngineSelector(base: archiveEngineSelector, pinned: pinnedEngines)
-        // MacPacker Lab
-        guard let nameEncoding else { return selector }
-        return NameEncodingEngineSelector(base: selector, encoding: nameEncoding)
     }
     private let archiveTypeDetector: ArchiveTypeDetector
     
@@ -315,7 +307,6 @@ extension ArchiveState {
         self.testResult = nil
         searchTask?.cancel()
         searchTask = nil
-        self.nameEncoding = nil
 
         self.url = nil
         self.openedFile = nil
@@ -1183,31 +1174,13 @@ extension ArchiveState {
         return ArchiveFiles.files(of: url, among: siblings, splits: catalog.allSplits())
     }
 
-    public func open(url: URL) {
-        open(url: url, nameEncoding: nil)
-    }
-
-    /// MacPacker Lab: whether the names can be read again in another
-    /// encoding — the archive is a file, with nothing running in its window
-    /// and no change waiting that a reopen would lose.
-    public var canChangeNameEncoding: Bool {
-        hasArchive && url != nil && !isBusy && !isSaving && !hasPendingChanges
-    }
-
     /// MacPacker Lab: the compressed tar the window shows, under the format the
     /// writer writes it as; `nil` for any other archive (and a tar.lz4).
     public var writtenCompressedTar: CompressionOptions.Format? {
         compositionType.flatMap { CompressionOptions.Format(rawValue: $0.id) }
     }
 
-    /// MacPacker Lab: opens the window's archive again, its names read in
-    /// `encoding`; `nil` reads them as the engine does.
-    public func reopen(withNameEncoding encoding: String.Encoding?) {
-        guard canChangeNameEncoding, encoding != nameEncoding, let url else { return }
-        open(url: url, nameEncoding: encoding)
-    }
-
-    private func open(url: URL, nameEncoding: String.Encoding?) {
+    public func open(url: URL) {
         // A second open supersedes the first. Without cancelling, the earlier
         // task keeps running against the same state.
         openTask?.cancel()
@@ -1215,7 +1188,6 @@ extension ArchiveState {
         let generation = openGeneration
 
         reset()
-        self.nameEncoding = nameEncoding
         updateStatus(.processing)
         
         self.hasArchive = true
@@ -1276,10 +1248,7 @@ extension ArchiveState {
                    type.engines.contains(where: { $0.id == used.configId && $0.canEdit })
                     // MacPacker Lab: and a tar.gz, tar.xz or tar.bz2 whose tar
                     // 7-Zip listed — its writer writes them again
-                    || (writtenCompressedTar != nil && used == .`7zip`),
-                   // MacPacker Lab: nor with names read in a chosen encoding,
-                   // which are not the names the archive stores
-                   nameEncoding == nil {
+                    || (writtenCompressedTar != nil && used == .`7zip`) {
                     canBeEdited = true
                 }
                 

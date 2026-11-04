@@ -13,7 +13,7 @@ import Testing
 extension AllCoreTests {
     struct LabStringCatalogTests {
         /// The keys the Lab's own strings go by.
-        static let labPrefixes = ["lab", "accessibility", "notification", "archiveTest", "commonTest", "archiveNameEncoding"]
+        static let labPrefixes = ["lab", "accessibility", "notification", "archiveTest", "commonTest"]
 
         private struct Catalog: Decodable {
             struct Entry: Decodable {

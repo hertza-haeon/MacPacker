@@ -507,8 +507,7 @@ final actor ArchiveXadEngine: ArchiveEngine {
             attempts: ArchivePasswordAttempts(url: url, resolver: passwordResolver),
             delegate: delegate
         )
-        // MacPacker Lab: or the encoding the user chose for the names
-        try await archive.setNameEncoding(ArchiveNameEncoding.current?.rawValue ?? NSUTF8StringEncoding)
+        try await archive.setNameEncoding(NSUTF8StringEncoding)
         return archive
     }
 

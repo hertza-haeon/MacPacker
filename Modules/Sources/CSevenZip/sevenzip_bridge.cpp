@@ -19,7 +19,6 @@
 #include <sys/xattr.h>
 #include <utility>
 #include <cerrno>
-#include <CoreFoundation/CoreFoundation.h>
 
 #include "Common/MyWindows.h"
 #include "Common/MyCom.h"
@@ -98,41 +97,6 @@ static std::string PropVariantToUTF8(const NWindows::NCOM::CPropVariant &prop) {
     return "";
 }
 
-/// MacPacker Lab: `name` read in the encoding the user chose for the
-/// archive's names, a CFStringEncoding; kCFStringEncodingInvalidId keeps it
-/// as 7-Zip read it.
-///
-/// 7-Zip reads every name it is not told is UTF-8 as UTF-8 here, and keeps
-/// each byte that is not as a private-use point, U+EF00 + the byte. Those
-/// points give the bytes the archive stores back, to be read again in the
-/// encoding chosen. A name with none was valid UTF-8, and stays as it is:
-/// that is how an archive marks its names as Unicode, and what ASCII is.
-static UString inNameEncoding(const UString &name, uint32_t encoding) {
-    if (encoding == kCFStringEncodingInvalidId) return name;
-    bool escaped = false;
-    for (unsigned i = 0; i < name.Len() && !escaped; i++)
-        escaped = (((UInt32)name[i]) & 0xFFFFFF80) == 0xEF80;
-    if (!escaped) return name;
-
-    AString raw;
-    ConvertUnicodeToUTF8_Flags(name, raw, Z7_UTF_FLAG_TO_UTF8_EXTRACT_BMP_ESCAPE);
-    CFStringRef decoded = CFStringCreateWithBytes(
-        kCFAllocatorDefault, (const UInt8 *)raw.Ptr(), (CFIndex)raw.Len(),
-        (CFStringEncoding)encoding, false);
-    if (!decoded) return name;  // not text in that encoding: as 7-Zip read it
-
-    const CFIndex size = CFStringGetMaximumSizeForEncoding(
-        CFStringGetLength(decoded), kCFStringEncodingUTF8) + 1;
-    std::vector<char> utf8((size_t)size);
-    const bool converted = CFStringGetCString(decoded, utf8.data(), size, kCFStringEncodingUTF8);
-    CFRelease(decoded);
-    if (!converted) return name;
-
-    UString result;
-    ConvertUTF8ToUnicode(AString(utf8.data()), result);
-    return result;
-}
-
 static int64_t FileTimeToUnixEpoch(const FILETIME &ft) {
     // FILETIME: 100-nanosecond intervals since 1601-01-01
     // Unix epoch: seconds since 1970-01-01
@@ -159,9 +123,6 @@ struct SZArchiveHandle {
     UInt32 numItems;
     std::string password;
     bool hasPassword = false;
-    /// MacPacker Lab: the encoding names are read in, as a CFStringEncoding;
-    /// see `inNameEncoding`.
-    uint32_t nameEncoding = kCFStringEncodingInvalidId;
     /// What the innermost level was read from: the archive file, or for a
     /// nested level the entry of the level around it. Names an entry that has
     /// no path of its own, see entryPath().
@@ -437,16 +398,12 @@ HRESULT sz_open_stream(
 /// client gives it: `sourceName`'s file name less its extension, so
 /// `notes.txt.xz` holds `notes.txt`. bzip2, xz, lzma and compress store no
 /// name and gzip only optionally; an rpm's payload is such a stream too.
-///
-/// MacPacker Lab: a path the archive gives is read in `encoding` (see
-/// `inNameEncoding`); a name made up here, from a file's own name, is not.
-static UString entryPath(IInArchive *archive, UInt32 index, const UString &sourceName,
-                         uint32_t encoding = kCFStringEncodingInvalidId)
+static UString entryPath(IInArchive *archive, UInt32 index, const UString &sourceName)
 {
     NWindows::NCOM::CPropVariant prop;
     archive->GetProperty(index, kpidPath, &prop);
     if (prop.vt == VT_BSTR && prop.bstrVal && prop.bstrVal[0])
-        return inNameEncoding(UString(prop.bstrVal), encoding);
+        return UString(prop.bstrVal);
 
     // ponytail: 7-Zip's client also gives a `tgz`, `txz`, ... back its `.tar` and
     // appends the entry's kpidExtension (GetDefaultName2, GetItem_DefaultPath).
@@ -608,9 +565,6 @@ public:
     /// Entries that did not decode, by index — what a test names as damaged.
     std::vector<UInt32> failedIndices;
 
-    /// MacPacker Lab: what the archive's names are read in; see `inNameEncoding`.
-    uint32_t nameEncoding = kCFStringEncodingInvalidId;
-
     std::string destDir() const { return std::string(_destDir.Ptr(), (size_t)_destDir.Len()); }
 
 private:
@@ -661,7 +615,7 @@ Z7_COM7F_IMF(CExtractCallback::GetStream(
     if (askExtractMode != NArchive::NExtract::NAskMode::kExtract)
         return S_OK;
 
-    const UString filePath = entryPath(_archive, index, _sourceName, nameEncoding);
+    const UString filePath = entryPath(_archive, index, _sourceName);
 
     // Check if directory
     NWindows::NCOM::CPropVariant propIsDir;
@@ -1163,10 +1117,7 @@ static void sz_indexAppleDoubleSidecars(SZArchiveHandle *handle) {
         if (arc->GetProperty(i, kpidPath, &propPath) != S_OK) continue;
 
         bool fromMirror = false;
-        const std::string path = (propPath.vt == VT_BSTR && propPath.bstrVal)
-            ? UStringToUTF8(inNameEncoding(UString(propPath.bstrVal), handle->nameEncoding))
-            : std::string();
-        paths[i] = normalizedEntryPath(path, &fromMirror);
+        paths[i] = normalizedEntryPath(PropVariantToUTF8(propPath), &fromMirror);
         sequestered[i] = fromMirror;
         // A mirror entry never wins the name: the real entry owns it.
         if (!fromMirror && !paths[i].empty())
@@ -1433,23 +1384,6 @@ void sz_set_password(SZArchiveRef archive, const char *password) {
     }
 }
 
-void sz_set_name_encoding(SZArchiveRef archive, uint32_t cf_encoding) {
-    if (!archive) return;
-    auto *handle = static_cast<SZArchiveHandle *>(archive);
-    if (handle->nameEncoding == cf_encoding) return;
-    handle->nameEncoding = cf_encoding;
-    // The sidecars are matched to their entries by name: again, by the names
-    // as they now read.
-    handle->hiddenSidecars.clear();
-    handle->companions.clear();
-    handle->directoryCompanions.clear();
-    handle->pathByIndex.clear();
-    try {
-        sz_indexAppleDoubleSidecars(handle);
-    } catch (...) {
-    }
-}
-
 void sz_close(SZArchiveRef archive) {
     if (!archive) return;
     try {
@@ -1495,9 +1429,7 @@ static const char *entryString(SZArchiveRef archive, uint32_t index, PROPID prop
         if (handle->activeArchive()->GetProperty(index, propID, &prop) != S_OK
             || prop.vt != VT_BSTR || !prop.bstrVal)
             return nullptr;
-        UString value(prop.bstrVal);
-        if (propID == kpidPath) value = inNameEncoding(value, handle->nameEncoding);
-        return handle->storeString(UStringToUTF8(value));
+        return handle->storeString(UStringToUTF8(UString(prop.bstrVal)));
     } catch (...) {
         return nullptr;
     }
@@ -1547,7 +1479,7 @@ bool sz_get_entry(SZArchiveRef archive, uint32_t index, SZEntry *entry_out) {
         entry_out->is_alt_stream = false;
 
         // Path, named as CExtractCallback names the file it writes
-        const std::string pathStr = UStringToUTF8(entryPath(arc, index, handle->sourceName, handle->nameEncoding));
+        const std::string pathStr = UStringToUTF8(entryPath(arc, index, handle->sourceName));
         entry_out->path = handle->storeString(pathStr);
 
         // Parent index and name (tree-aware)
@@ -1658,7 +1590,6 @@ int sz_extract_entry(SZArchiveRef archive, uint32_t index,
         auto *callback = new CExtractCallback(handle->activeArchive(), handle->sourceName, fDest,
                                                 handle->password, handle->hasPassword);
         CMyComPtr<IArchiveExtractCallback> callbackRef(callback);
-        callback->nameEncoding = handle->nameEncoding;
 
         const UInt32 indices[1] = { index };
         HRESULT hr = handle->activeArchive()->Extract(indices, 1, 0, callback);
@@ -1691,7 +1622,6 @@ int sz_extract_entries(SZArchiveRef archive, const uint32_t *indices,
                                                 handle->password, handle->hasPassword,
                                                 progress, progress_context);
         CMyComPtr<IArchiveExtractCallback> callbackRef(callback);
-        callback->nameEncoding = handle->nameEncoding;
 
         // Sidecars are not in the listing, so a selection cannot name them. Pull
         // in the ones describing what was asked for, or the entries come out
@@ -1727,7 +1657,6 @@ int sz_extract_all(SZArchiveRef archive, const char *dest_dir,
                                                 handle->password, handle->hasPassword,
                                                 progress, progress_context);
         CMyComPtr<IArchiveExtractCallback> callbackRef(callback);
-        callback->nameEncoding = handle->nameEncoding;
 
         HRESULT hr = handle->activeArchive()->Extract(
             nullptr, (UInt32)(Int32)-1, 0, callback);
@@ -1759,7 +1688,6 @@ int sz_test_all(SZArchiveRef archive,
                                                 handle->password, handle->hasPassword,
                                                 progress, progress_context);
         CMyComPtr<IArchiveExtractCallback> callbackRef(callback);
-        callback->nameEncoding = handle->nameEncoding;
 
         HRESULT hr = handle->activeArchive()->Extract(
             nullptr, (UInt32)(Int32)-1, 1, callback);

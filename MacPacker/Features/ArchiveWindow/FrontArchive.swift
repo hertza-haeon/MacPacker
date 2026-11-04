@@ -2,10 +2,11 @@
 //  FrontArchive.swift
 //  MacPacker
 //
-//  MacPacker Lab: the front archive window's state, for a menu item that
-//  shows it — a checkmark — rather than only acts on it. The archive windows
-//  are NSWindows, out of reach of `@FocusedValue` (see `ArchiveCommands`), so
-//  the window that becomes key is followed here instead.
+//  MacPacker Lab: the front archive window's state, for menu items that
+//  show it — greyed out where they would do nothing — rather than only act
+//  on it. The archive windows are NSWindows, out of reach of
+//  `@FocusedValue` (see `ArchiveCommands`), so the window that becomes key
+//  is followed here instead.
 //
 
 import AppKit
@@ -51,7 +52,6 @@ final class FrontArchive: ObservableObject {
         // what the menu reads of it
         stateChanges = state.map { state in
             Publishers.MergeMany([
-                state.$nameEncoding.map { _ in () }.eraseToAnyPublisher(),
                 state.$hasArchive.map { _ in () }.eraseToAnyPublisher(),
                 state.$url.map { _ in () }.eraseToAnyPublisher(),
                 state.$isBusy.map { _ in () }.eraseToAnyPublisher(),

@@ -130,6 +130,11 @@ public class ArchiveState: ObservableObject {
     /// a caller that reads the results waits for.
     public private(set) var searchTask: Task<Void, Never>?
     @Published public var isReloadNeeded: Bool = false
+    /// What this archive's names are read in, where they could be in something
+    /// else. `nil` when the archive says, or they are ASCII: nothing to choose.
+    @Published private(set) public var nameEncoding: ArchiveNameEncoding? = nil
+    /// The encoding the user picked for the names; `nil` leaves it to detection.
+    @Published private(set) public var chosenNameEncoding: ArchiveNameEncoding? = nil
 
     // Listeners for non-ui
     @Published private(set) public var status: ArchiveStateStatus = .idle
@@ -152,13 +157,16 @@ public class ArchiveState: ObservableObject {
 
     /// The selector everything downstream should use.
     private var effectiveEngineSelector: ArchiveEngineSelectorProtocol {
-        pinnedEngines.isEmpty
+        pinnedEngines.isEmpty && chosenNameEncoding == nil
             ? archiveEngineSelector
-            : AutomaticEngineSelector(base: archiveEngineSelector, pinned: pinnedEngines)
+            : AutomaticEngineSelector(base: archiveEngineSelector, pinned: pinnedEngines, nameEncoding: chosenNameEncoding)
     }
     private let archiveTypeDetector: ArchiveTypeDetector
     
     private var tempDirectories: [URL] = []
+    /// Selections being extracted, which go on behind `isBusy`. Their temp files
+    /// must not go away under them.
+    private var runningExtractions = 0
     
     public var passwordProvider: ArchivePasswordUserProvider?
     public var folderAccessProvider: ArchiveFolderAccessUserProvider?
@@ -340,6 +348,10 @@ extension ArchiveState {
         self.passwords = [:]
         self.pinnedEngines = [:]
         self.activeEngine = nil
+        self.nameEncoding = nil
+        self.chosenNameEncoding = nil
+        // The file it shows goes with the temp directories below.
+        self.previewItemUrl = nil
         
         updateStatus(.idle)
         
@@ -1047,6 +1059,11 @@ extension ArchiveState {
         let format = (destination == nil ? writtenCompressedTar : nil)
             ?? CompressionOptions.Format.compressedTar(named: target.lastPathComponent)
             ?? catalog.writtenFormat(forExtension: target.pathExtension) ?? .newArchive
+        let writeOptions = options ?? CompressionOptions(format: format)
+        // MacPacker Lab: a compressed tar is written again whole, in place too,
+        // and 7-Zip stores every name of a tar it writes in UTF-8: what the
+        // names were read in before no longer applies to them.
+        let namesWrittenAnew = writeOptions.format.isCompressedTar
         let saver = ArchiveSaver(
             source: url,
             // From the file's name, by the catalog's split patterns — not by
@@ -1059,9 +1076,10 @@ extension ArchiveState {
             sourceAsOpened: openedFile,
             target: target,
             items: diff,
-            options: options ?? CompressionOptions(format: format),
+            options: writeOptions,
             isSaveAs: destination != nil,
             sourcePassword: url.flatMap { passwords[$0] },
+            sourceNameEncoding: chosenNameEncoding,
             passwordResolver: makePasswordResolver(),
             folderAccessProvider: folderAccessProvider,
             onProgress: { [weak self, progressCenter] completed, total, date in
@@ -1093,6 +1111,8 @@ extension ArchiveState {
 
                 // reload from disk so entries and indices reflect the file
                 let engines = pinnedEngines
+                let chosenEncoding = chosenNameEncoding
+                let readEncoding = nameEncoding
                 open(url: saved.url)
                 // Known already — reopening must not ask again. Set after open(),
                 // which starts by forgetting every password, and before the first
@@ -1103,7 +1123,15 @@ extension ArchiveState {
                 // Likewise the engine: it is still the archive the window opened,
                 // whatever Settings have said since.
                 pinnedEngines = engines
+                if !namesWrittenAnew { chosenNameEncoding = chosenEncoding }
                 _ = try? await openTask?.value
+                // Fewer names can tell a different story, while no byte of them
+                // changed: `文档` alone reads as Korean.
+                // ponytail: for this window. Opened anew, that is what it reads as.
+                if !namesWrittenAnew, let readEncoding, let nameEncoding, nameEncoding != readEncoding {
+                    readNames(as: readEncoding)
+                    _ = try? await openTask?.value
+                }
                 self.isSaving = false
                 return .written
             } catch SevenZipError.cancelled {
@@ -1254,6 +1282,7 @@ extension ArchiveState {
                 
                 self.uncompressedSize = loaderResult.uncompressedSize
                 self.isEncrypted = loaderResult.isEncrypted
+                self.nameEncoding = loaderResult.nameEncoding
                 // The archive stays with the engine that read it (see
                 // `pinnedEngines`). That may be a fallback, when the configured
                 // engine cannot read this archive: the first extraction would
@@ -1337,6 +1366,23 @@ extension ArchiveState {
         }
     }
     
+    /// Lists the archive again with its names read in `encoding`, or as detected
+    /// for `nil`, from here on and for everything extracted from it. Nothing
+    /// changes in the file. Refused with changes pending: the listing they are
+    /// about goes.
+    public func readNames(as encoding: ArchiveNameEncoding?) {
+        guard let url, !hasPendingChanges, !isBusy, runningExtractions == 0, encoding != chosenNameEncoding
+        else { return }
+        let known = passwords
+        let engines = pinnedEngines
+        open(url: url)
+        // Like the password and the engine after a save: set after open(), which
+        // forgets them, and before the load gets to run.
+        passwords = known
+        pinnedEngines = engines
+        chosenNameEncoding = encoding
+    }
+
     public func open(item: ArchiveItem) {
         Task {
             do {
@@ -1751,7 +1797,9 @@ extension ArchiveState {
         )
 
         let cancelFlag = ExtractionCancelFlag()
+        runningExtractions += 1
         let task = Task { () -> ExtractionJob.State in
+            defer { runningExtractions -= 1 }
             let outcome: ExtractionJob.State
             do {
                 let batches = try batchResolver.resolveBatches(for: items, in: entries, using: effectiveEngineSelector)

@@ -1,6 +1,14 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Detect Automatically": {
+      "comment": "File ▸ Filename Encoding, first entry: the app works out how the file names inside the archive are written, as opposed to the encodings listed below it.",
+      "extractionState": "manual"
+    },
+    "Filename Encoding": {
+      "comment": "File menu, submenu: how the file names inside the open archive are read. For archives from another system whose names show up garbled.",
+      "extractionState": "manual"
+    },
     "accessibilityDismiss": {
       "comment": "The small x button that removes a failed extraction from the window's list. Not shown on screen: VoiceOver reads it for a control or symbol that has no text.",
       "extractionState": "manual",

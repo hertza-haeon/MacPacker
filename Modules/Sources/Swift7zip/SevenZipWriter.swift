@@ -36,6 +36,10 @@ extension SevenZipArchive {
     ///   - destination: URL where the output archive will be written.
     ///   - items: The diff to apply (removals, moves, additions).
     ///   - options: Compression options. Defaults to 7z format, level 5.
+    ///   - readSourceNames: Called with the opened source, to give its entries
+    ///     the names they get when the archive is written again; see
+    ///     ``SevenZipArchive/storedNames``. Kept entries that are not rewritten
+    ///     keep their stored names whatever it does.
     /// - Throws: ``SevenZipError/writeFailed(_:)`` on failure.
     /// Byte progress during an archive write, as reported by 7-Zip.
     /// `completed`/`total` share the handler's processed-bytes unit. Return
@@ -49,11 +53,13 @@ extension SevenZipArchive {
         options: CompressionOptions = .init(),
         sourcePassword: String? = nil,
         rewrite: Bool = false,
+        readSourceNames: (SevenZipArchive) -> Void = { _ in },
         progress: WriteProgressHandler? = nil
     ) throws {
         if options.writerFormat == nil, let compression = options.format.tarCompression {
             try writeCompressedTar(compression: compression, source: source, destination: destination, items: items,
-                                   options: options, sourcePassword: sourcePassword, progress: progress)
+                                   options: options, sourcePassword: sourcePassword,
+                                   readSourceNames: readSourceNames, progress: progress)
             return
         }
         var options = options
@@ -108,6 +114,7 @@ extension SevenZipArchive {
         do {
             // scoped, so the handle is closed again before anything is written
             let sourceArchive = try read.map { try SevenZipArchive(url: $0, password: sourcePassword) }
+            if let sourceArchive { readSourceNames(sourceArchive) }
             let locked = try sourceArchive?.entries.filter(\.isEncrypted) ?? []
             let encrypted = !locked.isEmpty
             // The source's format, from 7-Zip, which opened it — under the names
@@ -231,6 +238,7 @@ extension SevenZipArchive {
         items: [ArchiveUpdateItem],
         options: CompressionOptions,
         sourcePassword: String?,
+        readSourceNames: (SevenZipArchive) -> Void,
         progress: WriteProgressHandler?
     ) throws {
         if options.encrypts {
@@ -272,6 +280,7 @@ extension SevenZipArchive {
         let tarTotal = TarTotal()
         try writeArchive(source: inner ?? source, destination: tar, items: items, options: tarOptions,
                          sourcePassword: inner == nil ? sourcePassword : nil, rewrite: true,
+                         readSourceNames: readSourceNames,
                          progress: progress.map { report in
                              { completed, total in
                                  tarTotal.bytes = total
@@ -443,12 +452,13 @@ extension SevenZipArchive {
         }
 
         // The scratch disk ignores case and Unicode normalization; archive names
-        // don't, so "Readme.txt" and "README.txt" would land on one file. Entries
-        // that collide are extracted one by one, each into a folder of its own.
+        // don't, so "Readme.txt" and "README.txt" would land on one file, as "a"
+        // and "../a" do anywhere. Entries that collide are extracted one by one,
+        // each into a folder of its own.
         var firstWithName: [String: UInt32] = [:]
         var loners: Set<UInt32> = []
         for (entry, _) in kept where !entry.isDirectory {
-            let key = entry.path.precomposedStringWithCanonicalMapping.lowercased()
+            let key = extractedPath(of: entry.path).precomposedStringWithCanonicalMapping.lowercased()
             if let first = firstWithName[key] {
                 loners.formUnion([first, entry.index])
             } else {
@@ -494,9 +504,7 @@ extension SevenZipArchive {
         // directory listings whenever a `._name` stands beside `name`.
         for index in hidden {
             guard let stored = sz_entry_path(archive.handle.ref, index) else { continue }
-            // sanitized the way the extraction does: no empty, "." or ".." parts
-            let relative = String(cString: stored).split(separator: "/")
-                .filter { $0 != "." && $0 != ".." }.joined(separator: "/")
+            let relative = extractedPath(of: String(cString: stored))
             let file = shared.appendingPathComponent(relative)
             guard !relative.isEmpty,
                   let attributes = try? fm.attributesOfItem(atPath: file.path),

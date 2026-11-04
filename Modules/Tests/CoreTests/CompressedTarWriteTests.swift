@@ -99,10 +99,11 @@ extension AllCoreTests {
             let archive = folder.appendingPathComponent("out.tar.gz")
             let reports = Reports()
 
-            try SevenZipArchive.writeArchive(destination: archive, items: items, options: .init(format: .tarGz)) { done, total in
+            try SevenZipArchive.writeArchive(destination: archive, items: items, options: .init(format: .tarGz),
+                                             progress: { done, total in
                 reports.all.append((done, total))
                 return true
-            }
+            })
 
             let last = try #require(reports.all.last)
             #expect(last.0 == last.1, "\(last)")
@@ -200,10 +201,10 @@ extension AllCoreTests {
 
             do {
                 try SevenZipArchive.writeArchive(destination: base, items: [.addData(archivePath: "second.bin", data: noise(bytes: 10_000))],
-                                                 options: options) { done, total in
+                                                 options: options, progress: { done, total in
                     reports.all.append((done, total))
                     return true
-                }
+                })
                 Issue.record("wrote over an existing set of volumes")
             } catch SevenZipError.writeFailed(let message) {
                 #expect(message.contains("set.tar.xz.001 already exists"), "\(message)")

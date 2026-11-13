@@ -15,7 +15,8 @@ private let log = tb.Logger(subsystem: "app.MacPacker", category: "url")
 
 /// Finder action "Extract to "<name>"": extracts each selected archive into a
 /// new folder named after it, next to it, then selects in Finder those in the
-/// window's own folder.
+/// window's own folder. A folder that nothing was extracted into is removed
+/// again.
 class AppUrlExtractToFolderHandler: AppUrlHandler {
     private let catalog: ArchiveTypeCatalog
     private let engineSelector: ArchiveEngineSelectorProtocol
@@ -39,31 +40,37 @@ class AppUrlExtractToFolderHandler: AppUrlHandler {
         var folders: [URL] = []
         for fileUrl in appUrl.files {
             // The folder we create next to the archive is named after it,
-            // so the name comes from `fileUrl`.
-            let folder = appUrl.folder(of: fileUrl)
-            var folderName = ArchiveTypeDetector(catalog: self.catalog).getNameWithoutExtension(for: fileUrl)
-            // A folder of that name is there already: kept as it is, with the
-            // archive in a second one beside it, when Settings say keep both.
-            // Otherwise extracted into, as before.
-            if NameClash.current() == .keepBoth {
-                folderName = NameClash.freeName(for: folderName, in: folder)
+            // so the name comes from `fileUrl`. A folder of that name already
+            // there is left alone: the new one is "name 2".
+            let parent = appUrl.folder(of: fileUrl)
+            let name = ArchiveTypeDetector(catalog: self.catalog).getNameWithoutExtension(for: fileUrl)
+            let folderUrl: URL
+            do {
+                // Inside the grant that covers the archive's folder: a stored
+                // one is not active until it is taken, and the free name is
+                // looked for in there too. The extraction below takes it again
+                // for its own reads and writes.
+                folderUrl = try Sandbox.accessSync(url: parent) {
+                    let folderUrl = parent.appendingPathComponent(
+                        SmartExtraction.freeName(name, in: parent, isDirectory: true))
+                    try FileManager.default.createDirectory(at: folderUrl, withIntermediateDirectories: true)
+                    return folderUrl
+                }
+            } catch {
+                log.error(error.localizedDescription)
+                continue
             }
-            let folderUrl = folder.appendingPathComponent(folderName)
-            // The folder is not created here. The extraction makes a
-            // destination that is not there yet, and takes it back with a run
-            // that does not finish — created up front, it stayed behind, empty,
-            // after a cancel. A name that is taken by a file fails there too,
-            // where it is reported, rather than here, where it was only logged.
-            //
             // `honorsSmartExtraction` is false for this action: the folder
-            // it is named after is the one extracted into, so wrapping a
-            // second one inside would be the `Photos/Photos` nesting the smart
-            // rule exists to avoid.
-            _ = await self.extractArchive(fileUrl, into: folderUrl, smart: appUrl.action.honorsSmartExtraction && Keys.smartExtractionEnabled(), catalog: self.catalog, engineSelector: self.engineSelector)
-            // only a folder that is there can be shown
-            if FileManager.default.fileExists(atPath: folderUrl.path) {
-                folders.append(folderUrl)
+            // it is named after has just been created, so wrapping a second
+            // one inside would be the `Photos/Photos` nesting the smart rule
+            // exists to avoid.
+            let added = await self.extractArchive(fileUrl, into: folderUrl, smart: appUrl.action.honorsSmartExtraction && Keys.smartExtractionEnabled(), catalog: self.catalog, engineSelector: self.engineSelector)
+            // A failed or cancelled extraction adds nothing, and the folder
+            // made for it goes again. rmdir removes it only while it is empty.
+            if added.isEmpty && Sandbox.accessSync(url: folderUrl, perform: { rmdir(folderUrl.path) }) == 0 {
+                continue
             }
+            folders.append(folderUrl)
         }
         // only where it takes no second Finder window
         let selected = appUrl.itemsToSelect(folders)

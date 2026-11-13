@@ -9,8 +9,9 @@ import Core
 import Foundation
 import SwiftUI
 
-/// MacPacker Lab: the app's windows, its menu bar item, its notifications and
-/// its history. The archive window and extraction have panes of their own.
+/// MacPacker Lab: the app's windows, its menu bar item, its notifications, its
+/// history, and what new archives leave out. The archive window and extraction
+/// have panes of their own.
 struct GeneralSettingsView: View {
     @AppStorage(Keys.quitOnLastWindowClosed) var quitOnLastWindowClosed: Bool = false
     @AppStorage(Keys.openArchivesInTabs) var openArchivesInTabs: Bool = true
@@ -18,6 +19,7 @@ struct GeneralSettingsView: View {
     @AppStorage(Keys.rememberRecentArchives) var rememberRecentArchives: Bool = true
     @AppStorage(Keys.notifyFinishedJobs) var notifyFinishedJobs: Bool = true
     @AppStorage(Keys.notifyFinishedJobsAfter) var notifyFinishedJobsAfter: Int = FinishedJobNotices.defaultDuration
+    @AppStorage(Keys.excludeMacData) var excludeMacData: Bool = false
 
     var body: some View {
         Form {
@@ -60,6 +62,22 @@ struct GeneralSettingsView: View {
                               isOn: $rememberRecentArchives)
             } header: {
                 Text(.labSettingsSectionHistory)
+            }
+
+            // main's "Leave out Mac-specific data" (#404), for every archive
+            // written, from a window or from Finder
+            Section {
+                SettingRow(title: .archiveSaveExcludeMacData) {
+                    HStack(spacing: 6) {
+                        MacDataInfoButton()
+                        Toggle(isOn: $excludeMacData) { Text(.archiveSaveExcludeMacData) }
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .accessibilityIdentifier("settings.excludeMacData")
+                    }
+                }
+            } header: {
+                Text(.labSettingsSectionCompress)
             }
         }
         .formStyle(.grouped)

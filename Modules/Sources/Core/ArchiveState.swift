@@ -88,7 +88,20 @@ public class ArchiveState: ObservableObject {
     // Live filter over the whole archive. While non-empty, the table shows
     // every entry whose name matches instead of the current folder.
     @Published private(set) public var searchText: String = ""
-    
+
+    /// Whether the files Finder hides are listed. Starts from the setting; an
+    /// open window follows the setting as it changes.
+    public var showsHiddenFiles = Keys.showHiddenFilesEnabled() {
+        didSet {
+            guard showsHiddenFiles != oldValue else { return }
+            log.info("Hidden files shown changed", context: ["shown": "\(showsHiddenFiles)"])
+            // a selected file the list no longer shows would still be extracted
+            selectedItems = []
+            loadChildren()
+            isReloadNeeded = true
+        }
+    }
+
     // UI State
     @Published private(set) public var isBusy: Bool = false
     @Published private(set) public var statusText: String? = nil
@@ -108,11 +121,6 @@ public class ArchiveState: ObservableObject {
     /// MacPacker Lab: what the last "Test Archive" found, until the user has
     /// seen it. A test that was stopped leaves none.
     @Published private(set) public var testResult: ArchiveTestResult? = nil
-    /// MacPacker Lab: the encoding the user chose for the archive's names;
-    /// `nil` reads them as the engine does. Back to `nil` with each archive
-    /// opened, and kept by `reopen(withNameEncoding:)`.
-    @Published private(set) public var nameEncoding: String.Encoding? = nil
-
     /// MacPacker Lab: above this many entries, a search waits for a pause
     /// in typing and runs off the main actor: on 100,000 entries each
     /// keystroke had held the window for up to a second.
@@ -122,6 +130,11 @@ public class ArchiveState: ObservableObject {
     /// a caller that reads the results waits for.
     public private(set) var searchTask: Task<Void, Never>?
     @Published public var isReloadNeeded: Bool = false
+    /// What this archive's names are read in, where they could be in something
+    /// else. `nil` when the archive says, or they are ASCII: nothing to choose.
+    @Published private(set) public var nameEncoding: ArchiveNameEncoding? = nil
+    /// The encoding the user picked for the names; `nil` leaves it to detection.
+    @Published private(set) public var chosenNameEncoding: ArchiveNameEncoding? = nil
 
     // Listeners for non-ui
     @Published private(set) public var status: ArchiveStateStatus = .idle
@@ -144,16 +157,16 @@ public class ArchiveState: ObservableObject {
 
     /// The selector everything downstream should use.
     private var effectiveEngineSelector: ArchiveEngineSelectorProtocol {
-        let selector: ArchiveEngineSelectorProtocol = pinnedEngines.isEmpty
+        pinnedEngines.isEmpty && chosenNameEncoding == nil
             ? archiveEngineSelector
-            : AutomaticEngineSelector(base: archiveEngineSelector, pinned: pinnedEngines)
-        // MacPacker Lab
-        guard let nameEncoding else { return selector }
-        return NameEncodingEngineSelector(base: selector, encoding: nameEncoding)
+            : AutomaticEngineSelector(base: archiveEngineSelector, pinned: pinnedEngines, nameEncoding: chosenNameEncoding)
     }
     private let archiveTypeDetector: ArchiveTypeDetector
     
     private var tempDirectories: [URL] = []
+    /// Selections being extracted, which go on behind `isBusy`. Their temp files
+    /// must not go away under them.
+    private var runningExtractions = 0
     
     public var passwordProvider: ArchivePasswordUserProvider?
     public var folderAccessProvider: ArchiveFolderAccessUserProvider?
@@ -170,18 +183,32 @@ public class ArchiveState: ObservableObject {
     var scanFiles: @Sendable ([URL], String, ExtractionCancelFlag) async throws -> FileScan = { urls, base, cancel in
         try await FileScanner().scan(urls, under: base, cancel: cancel)
     }
-    /// What an extraction does with an item whose name is taken where it goes,
-    /// read as each extraction starts. Replacing, the engines' way, unless the
-    /// app hands in its setting (`NameClash.current`).
-    public var nameClash: () -> NameClash = { .replace }
     /// Where user-triggered extractions report their progress. Defaults to
     /// the app-wide center that feeds the extraction progress window;
     /// tests inject their own instance.
     public var progressCenter: ExtractionProgressCenter = .shared
+    /// Where this state reads its settings: the ".." row, the sort order, and
+    /// whether a save given no options leaves Mac-specific data out. Not the
+    /// hidden files: that setting lives in the app group the extensions share,
+    /// read through `Keys`. Tests inject their own.
+    var defaults: UserDefaults = .standard
     /// Set for an archive window's state: the id its extractions carry, so
     /// that the window shows them itself rather than the progress window
     /// (`ExtractionJob.shownIn`). `nil` for one no window shows — Finder's.
     public var windowID: UUID?
+    /// The job of the Extract archive under way, which is what makes the
+    /// state busy while it runs. MacPacker Lab: or of the Test archive.
+    @Published private var wholeExtractionJob: UUID?
+
+    /// Whether the state is busy with an Extract archive that its window
+    /// shows itself, with its own Cancel, so the status bar needn't. Extract
+    /// selected never makes the state busy: while one runs, whatever does is
+    /// something else, and the status bar shows it. MacPacker Lab: a Test
+    /// archive is shown the same way, and left to the window too.
+    public var isBusyWithItsOwnExtraction: Bool {
+        guard isBusy, let windowID, let job = wholeExtractionJob else { return false }
+        return progressCenter.jobs(shownIn: windowID).contains { $0.id == job && !$0.isFinished }
+    }
     /// Passwords the user gave, by the file they were given for. One window can
     /// hold more than one archive: an archive inside the archive opens in the
     /// same tree, extracted to a temp file, and each can have its own password.
@@ -199,6 +226,9 @@ public class ArchiveState: ObservableObject {
     private var openedFile: FileStamp?
 
     public private(set) var openTask: Task<Void, any Error>?
+    /// The temporary files of what was closed last, removed off the main actor
+    /// by `CacheCleaner`. They are gone once this ends.
+    private(set) var cleanTask: Task<Void, Never>?
     /// The add started last. What it adds is read off the main actor, so it is
     /// there once this ends.
     public private(set) var addTask: Task<Bool, Never>?
@@ -259,9 +289,9 @@ extension ArchiveState {
     /// How a `passwordCancelled` should be reported.
     ///
     /// Dismissing the prompt is the user's own choice, so the job just ends as
-    /// cancelled. Having no prompt at all is different: Finder's "Extract Here"
-    /// and QuickLook build an ArchiveState with no `passwordProvider`, so an
-    /// encrypted archive used to fail there with nothing shown and nothing
+    /// cancelled. Having no prompt at all is different: an ArchiveState built
+    /// with no `passwordProvider`, as Finder's "Extract Here" and QuickLook once
+    /// were, used to fail on an encrypted archive with nothing shown and nothing
     /// extracted. That needs to be a failure with a message that says what to do.
     private func passwordCancelledOutcome() -> ExtractionJob.State {
         guard passwordProvider == nil else { return .cancelled }
@@ -306,7 +336,6 @@ extension ArchiveState {
         self.testResult = nil
         searchTask?.cancel()
         searchTask = nil
-        self.nameEncoding = nil
 
         self.url = nil
         self.openedFile = nil
@@ -340,10 +369,15 @@ extension ArchiveState {
         self.passwords = [:]
         self.pinnedEngines = [:]
         self.activeEngine = nil
+        self.nameEncoding = nil
+        self.chosenNameEncoding = nil
+        // The file it shows goes with the temp directories below.
+        self.previewItemUrl = nil
         
         updateStatus(.idle)
-        
-        CacheCleaner().clean(tempDirectories: tempDirectories)
+
+        cleanTask = Task { [tempDirectories] in await CacheCleaner().remove(tempDirectories) }
+        tempDirectories = []
     }
     
     public func clean() {
@@ -415,7 +449,7 @@ extension ArchiveState {
     /// button and ⌘↑ go up either way.
     public var showsParentRow: Bool {
         guard !isSearching, canGoUp else { return false }
-        return UserDefaults.standard.bool(forKey: Keys.showParentRow)
+        return defaults.bool(forKey: Keys.showParentRow)
     }
 
     /// Updates the live search. Every change re-filters the entries; clearing
@@ -441,8 +475,8 @@ extension ArchiveState {
         // read once: through its publisher, each read of `entries` costs
         let entries = self.entries
         let keys = entries.values.map(ArchiveItemKey.init)
-        let matches = ArchiveListOrder.current.searched(keys, for: searchText) ?? []
-        return matches.compactMap { entries[$0.id] }
+        let matches = ArchiveListOrder.reading(defaults).searched(keys, for: searchText) ?? []
+        return listed(matches.compactMap { entries[$0.id] }, in: entries)
     }
 
     /// The results of a large archive's search, worked out on a snapshot of
@@ -455,10 +489,10 @@ extension ArchiveState {
             try? await Task.sleep(for: .milliseconds(150))
             guard let self, !Task.isCancelled else { return }
             let keys = self.entries.values.map(ArchiveItemKey.init)
-            let matches = await Self.search(keys, for: text, order: .current)
+            let matches = await Self.search(keys, for: text, order: .reading(self.defaults))
             guard !Task.isCancelled, let matches, self.searchText == text else { return }
             let entries = self.entries
-            self.childItems = matches.compactMap { entries[$0.id] }
+            self.childItems = self.listed(matches.compactMap { entries[$0.id] }, in: entries)
             self.isReloadNeeded = true
         }
     }
@@ -468,6 +502,44 @@ extension ArchiveState {
         _ keys: [ArchiveItemKey], for text: String, order: ArchiveListOrder
     ) async -> [ArchiveItemKey]? {
         order.searched(keys, for: text)
+    }
+
+    /// Whether `item` is hidden, or inside a folder that is. A search over all
+    /// entries would find what hidden folders hold; browsing does not list
+    /// them, though a window already inside one stays there.
+    private func isInHiddenPath(_ item: ArchiveItem) -> Bool {
+        var node: ArchiveItem? = item
+        while let current = node, current.type != .root {
+            if current.isHidden { return true }
+            node = current.parent.flatMap { entries[$0] }
+        }
+        return false
+    }
+
+    /// The children of `node` the list shows: all of them, or all but the
+    /// hidden ones. The archive window and the Quick Look outline both list
+    /// through this.
+    public func listedChildren(of node: ArchiveItem) -> [ArchiveItem] {
+        // MacPacker Lab: read once — through its publisher, each read of
+        // `entries` costs, and a folder of 100,000 took 54 ms to look up
+        let entries = self.entries
+        let children = (node.children ?? []).compactMap { entries[$0] }
+        return showsHiddenFiles ? children : children.filter { !$0.isHidden }
+    }
+
+    /// MacPacker Lab: search results the list shows — all of them, or all but
+    /// those in a hidden folder or hidden themselves — in the order given.
+    /// `entries` is read once by the caller.
+    private func listed(_ items: [ArchiveItem], in entries: [UUID: ArchiveItem]) -> [ArchiveItem] {
+        guard !showsHiddenFiles else { return items }
+        return items.filter { item in
+            var node: ArchiveItem? = item
+            while let current = node, current.type != .root {
+                if current.isHidden { return false }
+                node = current.parent.flatMap { entries[$0] }
+            }
+            return true
+        }
     }
 
     public func loadChildren() {
@@ -484,21 +556,17 @@ extension ArchiveState {
         // a search still under way is not shown once it is left
         searchTask?.cancel()
 
-        // MacPacker Lab: read once — through its publisher, each read of
-        // `entries` costs, and a folder of 100,000 took 54 ms to look up
-        let entries = self.entries
-        guard UserDefaults.standard.string(forKey: Keys.defaultOrderColumn) != nil else {
-            childItems = selectedItem.children?.compactMap { entries[$0] }
+        let children = listedChildren(of: selectedItem)
+        guard defaults.string(forKey: Keys.defaultOrderColumn) != nil else {
+            childItems = children
             return
         }
 
-        if let children = selectedItem.children?.compactMap({ entries[$0] }) {
-            childItems = sortedForDisplay(children)
-        }
+        childItems = sortedForDisplay(children)
     }
 
     private func sortedForDisplay(_ items: [ArchiveItem]) -> [ArchiveItem] {
-        ArchiveListOrder.current.sortedIndices(items.map(ArchiveItemKey.init)).map { items[$0] }
+        ArchiveListOrder.reading(defaults).sortedIndices(items.map(ArchiveItemKey.init)).map { items[$0] }
     }
 
     /// This stream is the only way to get status from any engine in a concurrency safe way
@@ -1013,6 +1081,12 @@ extension ArchiveState {
         let format = (destination == nil ? writtenCompressedTar : nil)
             ?? CompressionOptions.Format.compressedTar(named: target.lastPathComponent)
             ?? catalog.writtenFormat(forExtension: target.pathExtension) ?? .newArchive
+        let writeOptions = options ?? CompressionOptions(
+            format: format, excludeMacData: defaults.bool(forKey: Keys.excludeMacData))
+        // MacPacker Lab: a compressed tar is written again whole, in place too,
+        // and 7-Zip stores every name of a tar it writes in UTF-8: what the
+        // names were read in before no longer applies to them.
+        let namesWrittenAnew = writeOptions.format.isCompressedTar
         let saver = ArchiveSaver(
             source: url,
             // From the file's name, by the catalog's split patterns — not by
@@ -1025,9 +1099,10 @@ extension ArchiveState {
             sourceAsOpened: openedFile,
             target: target,
             items: diff,
-            options: options ?? CompressionOptions(format: format),
+            options: writeOptions,
             isSaveAs: destination != nil,
             sourcePassword: url.flatMap { passwords[$0] },
+            sourceNameEncoding: chosenNameEncoding,
             passwordResolver: makePasswordResolver(),
             folderAccessProvider: folderAccessProvider,
             onProgress: { [weak self, progressCenter] completed, total, date in
@@ -1059,6 +1134,8 @@ extension ArchiveState {
 
                 // reload from disk so entries and indices reflect the file
                 let engines = pinnedEngines
+                let chosenEncoding = chosenNameEncoding
+                let readEncoding = nameEncoding
                 open(url: saved.url)
                 // Known already — reopening must not ask again. Set after open(),
                 // which starts by forgetting every password, and before the first
@@ -1069,7 +1146,15 @@ extension ArchiveState {
                 // Likewise the engine: it is still the archive the window opened,
                 // whatever Settings have said since.
                 pinnedEngines = engines
+                if !namesWrittenAnew { chosenNameEncoding = chosenEncoding }
                 _ = try? await openTask?.value
+                // Fewer names can tell a different story, while no byte of them
+                // changed: `文档` alone reads as Korean.
+                // ponytail: for this window. Opened anew, that is what it reads as.
+                if !namesWrittenAnew, let readEncoding, let nameEncoding, nameEncoding != readEncoding {
+                    readNames(as: readEncoding)
+                    _ = try? await openTask?.value
+                }
                 self.isSaving = false
                 return .written
             } catch SevenZipError.cancelled {
@@ -1140,31 +1225,13 @@ extension ArchiveState {
         return ArchiveFiles.files(of: url, among: siblings, splits: catalog.allSplits())
     }
 
-    public func open(url: URL) {
-        open(url: url, nameEncoding: nil)
-    }
-
-    /// MacPacker Lab: whether the names can be read again in another
-    /// encoding — the archive is a file, with nothing running in its window
-    /// and no change waiting that a reopen would lose.
-    public var canChangeNameEncoding: Bool {
-        hasArchive && url != nil && !isBusy && !isSaving && !hasPendingChanges
-    }
-
     /// MacPacker Lab: the compressed tar the window shows, under the format the
     /// writer writes it as; `nil` for any other archive (and a tar.lz4).
     public var writtenCompressedTar: CompressionOptions.Format? {
         compositionType.flatMap { CompressionOptions.Format(rawValue: $0.id) }
     }
 
-    /// MacPacker Lab: opens the window's archive again, its names read in
-    /// `encoding`; `nil` reads them as the engine does.
-    public func reopen(withNameEncoding encoding: String.Encoding?) {
-        guard canChangeNameEncoding, encoding != nameEncoding, let url else { return }
-        open(url: url, nameEncoding: encoding)
-    }
-
-    private func open(url: URL, nameEncoding: String.Encoding?) {
+    public func open(url: URL) {
         // A second open supersedes the first. Without cancelling, the earlier
         // task keeps running against the same state.
         openTask?.cancel()
@@ -1172,7 +1239,6 @@ extension ArchiveState {
         let generation = openGeneration
 
         reset()
-        self.nameEncoding = nameEncoding
         updateStatus(.processing)
         
         self.hasArchive = true
@@ -1233,15 +1299,13 @@ extension ArchiveState {
                    type.engines.contains(where: { $0.id == used.configId && $0.canEdit })
                     // MacPacker Lab: and a tar.gz, tar.xz or tar.bz2 whose tar
                     // 7-Zip listed — its writer writes them again
-                    || (writtenCompressedTar != nil && used == .`7zip`),
-                   // MacPacker Lab: nor with names read in a chosen encoding,
-                   // which are not the names the archive stores
-                   nameEncoding == nil {
+                    || (writtenCompressedTar != nil && used == .`7zip`) {
                     canBeEdited = true
                 }
                 
                 self.uncompressedSize = loaderResult.uncompressedSize
                 self.isEncrypted = loaderResult.isEncrypted
+                self.nameEncoding = loaderResult.nameEncoding
                 // The archive stays with the engine that read it (see
                 // `pinnedEngines`). That may be a fallback, when the configured
                 // engine cannot read this archive: the first extraction would
@@ -1325,6 +1389,23 @@ extension ArchiveState {
         }
     }
     
+    /// Lists the archive again with its names read in `encoding`, or as detected
+    /// for `nil`, from here on and for everything extracted from it. Nothing
+    /// changes in the file. Refused with changes pending: the listing they are
+    /// about goes.
+    public func readNames(as encoding: ArchiveNameEncoding?) {
+        guard let url, !hasPendingChanges, !isBusy, runningExtractions == 0, encoding != chosenNameEncoding
+        else { return }
+        let known = passwords
+        let engines = pinnedEngines
+        open(url: url)
+        // Like the password and the engine after a save: set after open(), which
+        // forgets them, and before the load gets to run.
+        passwords = known
+        pinnedEngines = engines
+        chosenNameEncoding = encoding
+    }
+
     public func open(item: ArchiveItem) {
         Task {
             do {
@@ -1651,11 +1732,10 @@ extension ArchiveState {
             )
             let result = try await extractor.extract(
                 batch: batch,
+                as: url,
                 onProgress: makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
             )
             tempDirectories.append(result.tempDir)
-            try Task.checkCancellation()
-            try FileManager.default.moveItem(at: result.url, to: url)
         }
         progressCenter.setOnCancel(jobId) {
             cancelFlag.cancel()
@@ -1687,11 +1767,13 @@ extension ArchiveState {
 
     /// True when `items` selects every top-level entry of the archive — the
     /// selection is the whole archive, so extraction behaves like
-    /// "Extract archive" and the smart folder rule applies.
+    /// "Extract archive" and the smart folder rule applies. Hidden files the
+    /// list leaves out cannot be selected, so they are not asked for.
     private func coversWholeArchive(_ items: [ArchiveItem]) -> Bool {
         guard let root else { return false }
         let topLevel = entries.values.filter {
-            $0.parent == root.id || ($0.parent == nil && $0.type != .root)
+            ($0.parent == root.id || ($0.parent == nil && $0.type != .root))
+                && (showsHiddenFiles || !$0.isHidden)
         }
         guard !topLevel.isEmpty else { return false }
         let selectedIDs = Set(items.map(\.id))
@@ -1724,8 +1806,7 @@ extension ArchiveState {
             passwordResolver: makePasswordResolver(),
             onTempDirectoryCreated: { url in
                 tempDirs.add(url)
-            },
-            nameClash: nameClash()
+            }
         )
         let batchResolver = ArchiveBatchResolver()
 
@@ -1738,7 +1819,9 @@ extension ArchiveState {
         )
 
         let cancelFlag = ExtractionCancelFlag()
+        runningExtractions += 1
         let task = Task { () -> ExtractionJob.State in
+            defer { runningExtractions -= 1 }
             let outcome: ExtractionJob.State
             do {
                 let batches = try batchResolver.resolveBatches(for: items, in: entries, using: effectiveEngineSelector)
@@ -1749,42 +1832,25 @@ extension ArchiveState {
                 // The smart folder is created below, before the extractor starts
                 // access on it — so the user-picked destination has to be held
                 // accessible from here on, or the directory creation fails for
-                // sandboxed destinations.
-                let didAccessDestination = destination.startAccessingSecurityScopedResource()
-                defer { if didAccessDestination { destination.stopAccessingSecurityScopedResource() } }
+                // sandboxed destinations. A folder granted on an earlier launch
+                // is reached through its stored bookmark: on its own, the plain
+                // url grants nothing.
+                let scopedDestination = Sandbox.securityScopedURL(for: destination) ?? destination
+                let didAccessDestination = scopedDestination.startAccessingSecurityScopedResource()
+                defer { if didAccessDestination { scopedDestination.stopAccessingSecurityScopedResource() } }
 
                 var target = destination
-                if smart, coversWholeArchive(items) {
-                    let archiveUrl = url
-                    target = SmartExtraction.containerFolder(
-                        for: entries,
-                        archiveName: archiveUrl.map { archiveTypeDetector.getNameWithoutExtension(for: $0) } ?? "Archive",
-                        destination: destination
-                    ) ?? destination
-                    if target != destination {
-                        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-                    }
+                if smart, coversWholeArchive(items), SmartExtraction.needsContainer(entries) {
+                    let archiveName = url.map { archiveTypeDetector.getNameWithoutExtension(for: $0) } ?? "Archive"
+                    target = destination.appending(
+                        component: SmartExtraction.freeName(archiveName, in: destination, isDirectory: true))
+                    try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
                 }
-                let result: MultiExtractionResult
-                do {
-                    result = try await extractor.extract(
-                        batches: batches,
-                        to: target,
-                        onProgress: makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
-                    )
-                } catch {
-                    // The items come through a temp folder, so a run that does
-                    // not finish has put none of them into the destination —
-                    // but the container made for them above would stay. It is
-                    // new with this run, under a name nothing else had, so
-                    // whatever is in it is this run's own. Taken back here
-                    // rather than in the handlers below: by then access to the
-                    // destination has ended.
-                    if target != destination {
-                        try? FileManager.default.removeItem(at: target)
-                    }
-                    throw error
-                }
+                let result = try await extractor.extract(
+                    batches: batches,
+                    to: target,
+                    onProgress: makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
+                )
                 // A Cancel the engine did not see, too late for it or never
                 // looked for, still ends the run as cancelled.
                 try Task.checkCancellation()
@@ -1836,9 +1902,9 @@ extension ArchiveState {
             itemCount: entries.values.count(where: { $0.type == .file }),
             totalBytes: (uncompressedSize ?? 0) > 0 ? uncompressedSize : nil
         )
+        wholeExtractionJob = jobId
 
         let cancelFlag = ExtractionCancelFlag()
-        let clash = nameClash()
         let task = Task { () -> ExtractionJob.State in
             let outcome: ExtractionJob.State
             do {
@@ -1849,70 +1915,37 @@ extension ArchiveState {
                     throw ArchiveError.extractionFailed("No archive handler found")
                 }
 
-                // The work folder is created in the destination before the
-                // extractor starts access on it, and the result is moved into
-                // place after the extractor has let go of it — so the
-                // user-picked destination has to be held accessible from here
-                // on, or both fail for sandboxed destinations.
-                let didAccessDestination = destination.startAccessingSecurityScopedResource()
-                defer { if didAccessDestination { destination.stopAccessingSecurityScopedResource() } }
+                // The extractor creates its own folder in the destination before
+                // it starts access on it — so the user-picked destination has to
+                // be held accessible from here on, or that fails for sandboxed
+                // destinations. A folder granted on an earlier launch is reached
+                // through its stored bookmark: on its own, the plain url grants
+                // nothing.
+                let scopedDestination = Sandbox.securityScopedURL(for: destination) ?? destination
+                let didAccessDestination = scopedDestination.startAccessingSecurityScopedResource()
+                defer { if didAccessDestination { scopedDestination.stopAccessingSecurityScopedResource() } }
 
                 // Folder name from the archive file, extension stripped —
                 // compounds (tar.gz) and split parts included — so it matches
                 // the "Extract to …" folder naming.
-                let archiveName = archiveTypeDetector.getNameWithoutExtension(for: archiveUrl)
+                let containerName = smart && SmartExtraction.needsContainer(entries)
+                    ? archiveTypeDetector.getNameWithoutExtension(for: archiveUrl)
+                    : nil
 
-                // The engine writes into a work folder inside the destination,
-                // not into the destination itself: what a run that is cancelled
-                // or fails has written by then goes with that folder, and the
-                // destination is as it was. See `ExtractionStaging`.
-                let staging = try ExtractionStaging(in: destination, named: archiveName)
-                // …and Finder shows the run on that folder while it lasts.
-                let inFinder = ExtractionFinderProgress(
-                    on: staging.workFolder,
-                    totalBytes: (uncompressedSize ?? 0) > 0 ? uncompressedSize : nil)
-                let engineProgress = makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
                 let extractor = ArchiveExtractor(
                     archiveEngineSelector: effectiveEngineSelector,
                     passwordResolver: makePasswordResolver()
                 )
-                do {
-                    try await extractor.extractAll(
-                        archiveUrl,
-                        archiveTypeId: archiveTypeId,
-                        to: staging.workFolder,
-                        onProgress: { completed, total in
-                            inFinder.report(completed: completed, total: total)
-                            return engineProgress(completed, total)
-                        }
-                    )
-                    // A cancel that arrives as the engine finishes finds
-                    // nothing left to stop, and the engine returns as if all
-                    // were well. The run is cancelled all the same: nothing of
-                    // it has reached the destination yet, and nothing will.
-                    try Task.checkCancellation()
-                    // Decided only now: the container is the work folder
-                    // renamed, so a run that never gets here leaves no empty
-                    // one behind, and it takes the name that is free when the
-                    // result arrives.
-                    let container = smart
-                        ? SmartExtraction.containerFolder(
-                            for: entries,
-                            archiveName: archiveName,
-                            destination: destination)
-                        : nil
-                    // The indicator is tied to the work folder where it is, so
-                    // it comes down before that folder moves.
-                    inFinder.end()
-                    // Renames, as a rule — but extracting over what is already
-                    // there walks both trees, and that is not for the main actor.
-                    try await runBlocking { @Sendable in try staging.commit(as: container, clash: clash) }
-                } catch {
-                    inFinder.end()
-                    // nor is removing half an archive
-                    try? await runBlocking { @Sendable in staging.discard() }
-                    throw error
-                }
+                try await extractor.extractAll(
+                    archiveUrl,
+                    archiveTypeId: archiveTypeId,
+                    to: destination,
+                    containerName: containerName,
+                    onProgress: makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
+                )
+                // A Cancel the engine did not see, too late for it or never
+                // looked for, still ends the run as cancelled.
+                try Task.checkCancellation()
                 outcome = .done
             } catch is CancellationError {
                 outcome = .cancelled
@@ -1927,6 +1960,7 @@ extension ArchiveState {
             progressCenter.finish(jobId, outcome)
 
             self.isBusy = false
+            wholeExtractionJob = nil
             updateStatus(.done)
             return outcome
         }
@@ -1962,6 +1996,7 @@ extension ArchiveState {
             totalBytes: (uncompressedSize ?? 0) > 0 ? uncompressedSize : nil
         )
         isBusy = true
+        wholeExtractionJob = jobId
         updateStatus(.processing)
 
         let cancelFlag = ExtractionCancelFlag()
@@ -2002,6 +2037,7 @@ extension ArchiveState {
             }
             self.testResult = result
             self.isBusy = false
+            wholeExtractionJob = nil
             updateStatus(.done)
             return result
         }

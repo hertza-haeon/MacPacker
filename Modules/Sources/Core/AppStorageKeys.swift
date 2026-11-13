@@ -18,10 +18,6 @@ public enum Keys {
     /// empties what was already collected — a history you can no longer see is one
     /// you should no longer keep.
     public static let rememberRecentArchives = "rememberRecentArchives"
-    /// What an extraction does with an item whose name is taken where it goes:
-    /// a `NameClash`, `keepBoth` when unset. In the app group, like
-    /// `smartExtraction`, for the Quick Look preview to read.
-    public static let nameClash = "nameClash"
     /// Whether extraction decides on its own that the result needs a container
     /// folder named after the archive. On by default.
     public static let smartExtraction = "smartExtraction"
@@ -35,10 +31,10 @@ public enum Keys {
         defaults.object(forKey: smartExtraction) as? Bool ?? true
     }
 
-    /// Whether the archive window's Extract buttons — and the Quick Look
-    /// preview's — extract next to the archive, in its own folder, rather than
-    /// asking where to. Off by default. Kept in the app group, like
-    /// `smartExtraction`, for the preview to read.
+    /// Whether the archive window's Extract buttons extract next to the
+    /// archive, in its own folder, rather than asking where to. Off by
+    /// default. Kept in the app group, like `smartExtraction`, for the Quick
+    /// Look preview, whose folder dialog then opens at the archive's folder.
     public static let extractNextToArchive = "extractNextToArchive"
 
     /// `extractNextToArchive`, read from the app group. Unset is off.
@@ -62,9 +58,24 @@ public enum Keys {
     /// MacPacker Lab: how long a job runs, in seconds, before its end is worth
     /// a notification — one of `FinishedJobNotices.durationChoices`.
     public static let notifyFinishedJobsAfter = "notifyFinishedJobsAfter"
+    
+    /// Whether an archive opened from Finder — a double click, Open With — is
+    /// extracted next to itself, as Extract Here does, instead of opened in a
+    /// window (#280). Off by default.
+    public static let extractOnOpen = "extractOnOpen"
 
     // table settings
     public static let showParentRow = "showParentRow"
+    /// Whether the archive window and Quick Look list the files Finder hides,
+    /// greyed out as Finder shows them. Off by default (#304).
+    public static let showHiddenFiles = "showHiddenFiles"
+
+    /// `showHiddenFiles`, read from the app group so the Quick Look extension
+    /// sees what the app wrote. Unset is off.
+    public static func showHiddenFilesEnabled(in defaults: UserDefaults = .macPackerShared) -> Bool {
+        defaults.bool(forKey: showHiddenFiles)
+    }
+
     public static let showColumnCompressedSize = "showColumnCompressedSize"
     public static let showColumnUncompressedSize = "showColumnUncompressedSize"
     public static let showColumnModificationDate = "showColumnModificationDate"
@@ -93,7 +104,8 @@ public enum Keys {
     /// Quick Compress's remembered settings for one format, JSON — kept apart
     /// from the save panel's.
     public static func dropWindowSettings(_ format: String) -> String { "dropWindowSettings.\(format)" }
-    /// Leave `.DS_Store` files out of what Quick Compress writes.
+    /// Quick Compress's own `.DS_Store` switch before `excludeMacData`. Read
+    /// to carry that choice over.
     public static let dropWindowExcludeDSStore = "dropWindowExcludeDSStore"
 
     // save panel
@@ -101,9 +113,25 @@ public enum Keys {
     public static let saveOptionsFormat = "saveOptionsFormat"
     /// One format's remembered save settings, JSON.
     public static func saveOptionsSettings(_ format: String) -> String { "saveOptionsSettings.\(format)" }
-    /// Leave `.DS_Store` files out of archives. Off by default, as in Finder's
-    /// own Compress.
+    /// The save panel's own `.DS_Store` switch before `excludeMacData`. Read
+    /// to carry that choice over.
     public static let saveOptionsExcludeDSStore = "saveOptionsExcludeDSStore"
+
+    // compressing
+    /// Leave Mac-specific data out of what MacPacker compresses: `.DS_Store`
+    /// files, `._` sidecars, tags, custom icons, hidden flags (#236). One switch
+    /// for the save panel, Quick Compress, the start page and Finder alike. Off
+    /// by default, as in Finder's own Compress.
+    public static let excludeMacData = "excludeMacData"
+
+    /// Turns `excludeMacData` on for whoever had either `.DS_Store` switch it
+    /// replaces on. Only while it has no value of its own: that is the user's.
+    public static func carryOverExcludeDSStore(in defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: excludeMacData) == nil,
+              defaults.bool(forKey: saveOptionsExcludeDSStore) || defaults.bool(forKey: dropWindowExcludeDSStore)
+        else { return }
+        defaults.set(true, forKey: excludeMacData)
+    }
 
     // register defaults upon app start so that the archive table has a default it
     // can use when showing the table for the first time

@@ -41,10 +41,14 @@ struct ArchiveListOrder: Sendable {
     let column: String?
     let ascending: Bool
 
-    static var current: ArchiveListOrder {
+    static var current: ArchiveListOrder { reading(.standard) }
+
+    /// The order `defaults` holds: the archive state's own, which tests
+    /// give their own.
+    static func reading(_ defaults: UserDefaults) -> ArchiveListOrder {
         ArchiveListOrder(
-            column: UserDefaults.standard.string(forKey: Keys.defaultOrderColumn),
-            ascending: UserDefaults.standard.bool(forKey: Keys.defaultOrderColumnAscending))
+            column: defaults.string(forKey: Keys.defaultOrderColumn),
+            ascending: defaults.bool(forKey: Keys.defaultOrderColumnAscending))
     }
 
     /// A folder's items in that order, as their places in `keys`; without

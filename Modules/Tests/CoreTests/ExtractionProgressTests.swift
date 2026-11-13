@@ -7,6 +7,7 @@
 
 import Testing
 import Foundation
+import Combine
 @testable import Core
 
 extension AllCoreTests {
@@ -466,6 +467,21 @@ extension AllCoreTests {
             center.dismiss(id)
             #expect(center.jobs.map(\.id) == [id])
         }
+
+        /// The progress window is named after what it shows: Finder's
+        /// compression, while an archive window shows its own extraction,
+        /// is "Compressing". The quit warning still counts every job.
+        @Test func whatIsRunningIsCountedOverTheJobsShown() {
+            let center = ExtractionProgressCenter()
+            let window = UUID()
+            center.windowOpened(window)
+            _ = center.begin(archiveName: "a.zip", destination: nil, shownIn: window, itemCount: 1, totalBytes: 10)
+            _ = center.begin(kind: .compression, archiveName: "b.zip", destination: nil, itemCount: 1, totalBytes: 10)
+
+            #expect(ExtractionProgressCenter.runningKind(of: center.windowlessJobs) == .compression)
+            #expect(ExtractionProgressCenter.runningKind(of: center.jobs(shownIn: window)) == .extraction)
+            #expect(center.runningKind == .extraction)
+        }
     }
 
     // MARK: - ArchiveState extraction reports jobs
@@ -537,6 +553,40 @@ extension AllCoreTests {
             #expect(job.totalBytes == Int64(fileItem.uncompressedSize))
         }
 
+        // #300: the drag-out moved the extracted file into place on the main
+        // thread. Into another volume a move is a copy, and the app stood still
+        // for as long as the copy took. The engine sends its first progress
+        // report while it extracts, so the report reaches the main thread before
+        // anything the drag does after the extraction. The main thread is held
+        // from there: the file has to arrive all the same.
+        @Test func dragOutDeliversTheFileWhileTheMainThreadIsHeld() async throws {
+            let state = try await openedState()
+            let center = ExtractionProgressCenter()
+            state.progressCenter = center
+
+            let dest = try makeDest()
+            defer { try? FileManager.default.removeItem(at: dest) }
+
+            let fileItem = state.entries.values.first(where: { $0.type == .file && $0.uncompressedSize > 0 })!
+            let target = dest.appendingPathComponent(fileItem.name)
+
+            var arrivedWhileHeld: Bool?
+            let hold = center.$jobs.sink { jobs in
+                guard arrivedWhileHeld == nil, jobs.contains(where: \.hasEngineProgress) else { return }
+                let deadline = Date().addingTimeInterval(5)
+                while !FileManager.default.fileExists(atPath: target.path), Date() < deadline {
+                    usleep(1_000)
+                }
+                arrivedWhileHeld = FileManager.default.fileExists(atPath: target.path)
+            }
+            defer { hold.cancel() }
+
+            try await state.fulfillDrag(item: fileItem, to: target)
+
+            #expect(arrivedWhileHeld != nil, "the engine never reported progress, so nothing was held")
+            #expect(arrivedWhileHeld == true, "the file arrived only once the main thread was free")
+        }
+
         @Test func extractFullArchiveTracksJobAndProducesFiles() async throws {
             let state = try await openedState()
             let center = ExtractionProgressCenter()
@@ -588,6 +638,57 @@ extension AllCoreTests {
 
             #expect(center.jobs.count == 2)
             #expect(center.jobs.allSatisfy { $0.shownIn == window })
+        }
+
+        /// The status bar leaves to the window's own bar only an Extract
+        /// archive, which is what makes the state busy while it runs. Extract
+        /// selected never does: whatever makes the state busy meanwhile (an
+        /// add, a save) is something else, and the status bar shows it.
+        @Test(arguments: [true, false])
+        func theStatusBarLeavesTheWindowOnlyItsExtractArchive(inWindow: Bool) async throws {
+            let state = try await openedState()
+            let center = ExtractionProgressCenter()
+            state.progressCenter = center
+            let window = UUID()
+            if inWindow {
+                state.windowID = window
+                center.windowOpened(window)
+            }
+
+            let dest = try makeDest()
+            defer { try? FileManager.default.removeItem(at: dest) }
+            let fileItem = state.entries.values.first(where: { $0.type == .file && $0.uncompressedSize > 0 })!
+
+            var whileRunning: [Bool] = []
+            for run in [{ state.extract(items: [fileItem], to: dest, smart: false) },
+                        { state.extract(to: dest, smart: false) }] {
+                await withCheckedContinuation { continuation in
+                    state.onStatusChange = { status in
+                        if status == .done { continuation.resume() }
+                    }
+                    run()
+                    whileRunning.append(state.isBusyWithItsOwnExtraction)
+                }
+            }
+
+            #expect(whileRunning == [false, inWindow])
+            #expect(state.isBusyWithItsOwnExtraction == false)
+        }
+
+        /// MacPacker Lab: a Test archive also makes the state busy and is shown
+        /// in the window's own bar, so it is left to that bar too.
+        @Test func theStatusBarLeavesTheWindowItsTestArchive() async throws {
+            let state = try await openedState()
+            let center = ExtractionProgressCenter()
+            state.progressCenter = center
+            let window = UUID()
+            state.windowID = window
+            center.windowOpened(window)
+
+            let testing = state.test()
+            #expect(state.isBusyWithItsOwnExtraction)
+            _ = await testing.value
+            #expect(state.isBusyWithItsOwnExtraction == false)
         }
     }
 }

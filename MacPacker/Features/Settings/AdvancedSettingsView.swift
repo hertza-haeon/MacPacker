@@ -5,6 +5,7 @@
 //  Created by Stephan Arenswald on 17.06.25.
 //
 
+import Core
 import Foundation
 import SwiftUI
 import tb
@@ -29,7 +30,7 @@ struct AdvancedSettingsView: View {
                         .help(.settingsShowApplicationSupportFolder)
 
                         Button {
-                            CacheCleaner().clean()
+                            Task { await CacheCleaner().removeAll() }
                         } label: {
                             Text(.labSettingsClear)
                         }

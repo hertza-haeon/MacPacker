@@ -3,7 +3,7 @@
 //  MacPacker
 //
 //  MacPacker Lab: what the archive window shows — its columns, with a preview
-//  of their header — and how it is navigated.
+//  of their header, and hidden files — and how it is navigated.
 //
 
 import Core
@@ -17,6 +17,7 @@ struct ArchiveWindowSettingsView: View {
     @AppStorage(Keys.showColumnModificationDate) var showModificationDate: Bool = true
     @AppStorage(Keys.showColumnPosixPermissions) var showPermissions: Bool = false
     @AppStorage(Keys.showParentRow) var showParentRow: Bool = false
+    @AppStorage(Keys.showHiddenFiles, store: .macPackerShared) var showHiddenFiles: Bool = false
 
     var body: some View {
         Form {
@@ -25,6 +26,8 @@ struct ArchiveWindowSettingsView: View {
                     // a picture of what the controls set
                     .accessibilityHidden(true)
                 SettingToggle(title: .labSettingsShowParentRow, isOn: $showParentRow)
+                SettingToggle(title: .settingsShowHiddenFiles, isOn: $showHiddenFiles)
+                    .accessibilityIdentifier(AccessibilityIdentifier.showHiddenFilesSetting)
                 Picker(selection: $breadcrumbPosition) {
                     Text(.labSettingsPathBarTop).tag(BreadcrumbPosition.top)
                     Text(.labSettingsPathBarBottom).tag(BreadcrumbPosition.bottom)

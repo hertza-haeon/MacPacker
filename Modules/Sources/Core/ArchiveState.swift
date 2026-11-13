@@ -191,6 +191,19 @@ public class ArchiveState: ObservableObject {
     /// that the window shows them itself rather than the progress window
     /// (`ExtractionJob.shownIn`). `nil` for one no window shows — Finder's.
     public var windowID: UUID?
+    /// The job of the Extract archive under way, which is what makes the
+    /// state busy while it runs. MacPacker Lab: or of the Test archive.
+    @Published private var wholeExtractionJob: UUID?
+
+    /// Whether the state is busy with an Extract archive that its window
+    /// shows itself, with its own Cancel, so the status bar needn't. Extract
+    /// selected never makes the state busy: while one runs, whatever does is
+    /// something else, and the status bar shows it. MacPacker Lab: a Test
+    /// archive is shown the same way, and left to the window too.
+    public var isBusyWithItsOwnExtraction: Bool {
+        guard isBusy, let windowID, let job = wholeExtractionJob else { return false }
+        return progressCenter.jobs(shownIn: windowID).contains { $0.id == job && !$0.isFinished }
+    }
     /// Passwords the user gave, by the file they were given for. One window can
     /// hold more than one archive: an archive inside the archive opens in the
     /// same tree, extracted to a temp file, and each can have its own password.
@@ -1880,6 +1893,7 @@ extension ArchiveState {
             itemCount: entries.values.count(where: { $0.type == .file }),
             totalBytes: (uncompressedSize ?? 0) > 0 ? uncompressedSize : nil
         )
+        wholeExtractionJob = jobId
 
         let cancelFlag = ExtractionCancelFlag()
         let task = Task { () -> ExtractionJob.State in
@@ -1937,6 +1951,7 @@ extension ArchiveState {
             progressCenter.finish(jobId, outcome)
 
             self.isBusy = false
+            wholeExtractionJob = nil
             updateStatus(.done)
             return outcome
         }
@@ -1972,6 +1987,7 @@ extension ArchiveState {
             totalBytes: (uncompressedSize ?? 0) > 0 ? uncompressedSize : nil
         )
         isBusy = true
+        wholeExtractionJob = jobId
         updateStatus(.processing)
 
         let cancelFlag = ExtractionCancelFlag()
@@ -2012,6 +2028,7 @@ extension ArchiveState {
             }
             self.testResult = result
             self.isBusy = false
+            wholeExtractionJob = nil
             updateStatus(.done)
             return result
         }

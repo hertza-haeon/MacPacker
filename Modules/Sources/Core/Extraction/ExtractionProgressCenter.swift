@@ -226,6 +226,11 @@ public final class ExtractionProgressCenter: ObservableObject {
     /// A test is never it: it can be stopped at any point with nothing lost,
     /// so quitting under it needs no warning.
     public var runningKind: ExtractionJob.Kind? {
+        Self.runningKind(of: jobs)
+    }
+
+    /// `runningKind` over `jobs` only: those one window shows, say.
+    public static func runningKind(of jobs: [ExtractionJob]) -> ExtractionJob.Kind? {
         let running = jobs.filter { !$0.isFinished && $0.kind != .test }
         if running.contains(where: { $0.kind == .extraction }) { return .extraction }
         return running.isEmpty ? nil : .compression

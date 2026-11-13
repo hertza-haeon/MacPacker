@@ -63,7 +63,7 @@ extension SevenZipArchive {
             return
         }
         var options = options
-        let items = options.excludeDSStore ? items.excludingDSStore() : items
+        let items = options.excludeMacData ? items.excludingMacData() : items
         let inPlace = source != nil
             && source!.standardizedFileURL == destination.standardizedFileURL
         if inPlace && (options.volumeSize ?? 0) > 0 {
@@ -109,7 +109,10 @@ extension SevenZipArchive {
         // what it keeps byte for byte, in the source's format and with its old
         // method, whatever `options` say. An encrypted source only when the copy
         // gets a password too — rebuilt without one, it would come out in plain.
-        var resolved: [ResolvedItem]
+        // What the source keeps and what the diff adds stay apart until the
+        // sidecars are made: leaving Mac data out is about the second only.
+        var kept: [ResolvedItem]
+        var added: [ResolvedItem]
         let rebuild: Bool
         do {
             // scoped, so the handle is closed again before anything is written
@@ -179,24 +182,29 @@ extension SevenZipArchive {
             }
 
             // Resolve the diff into a full item list for the C bridge.
-            resolved = try resolveDiff(sourceArchive: sourceArchive, items: items)
+            (kept, added) = try resolveDiff(sourceArchive: sourceArchive, items: items)
             if rebuild, let sourceArchive {
                 // extracting is the first half of the work, writing the second
                 let firstHalf = progress.map { report in
                     { (done: UInt64, total: UInt64) in report(done, total * 2) }
                 }
-                resolved = try materializeKeptEntries(
-                    resolved, from: sourceArchive, into: scratch, progress: firstHalf)
+                kept = try materializeKeptEntries(
+                    kept, from: sourceArchive, into: scratch, progress: firstHalf)
             }
         }
-        // Not into a compressed tar's two passes. Its gzip, xz or bzip2 holds
-        // the tar alone; and in a tar, macOS's own tar reads `._name` as the
-        // metadata of the entry that comes next, `name`, so the zip's
-        // `__MACOSX/` mirror leaves it waiting for an entry that never comes
-        // ("Truncated input file"). Elsewhere a tar's `._name` files are
-        // clutter, and a tar.gz is often meant for elsewhere.
+        // Rebuilt, the entries kept from the source get their sidecars packed
+        // again, and keep them even when Mac data is left out — as a `.DS_Store`
+        // the archive holds stays.
+        var resolved = kept + added
+        // MacPacker Lab: none at all into a compressed tar's two passes. Its
+        // gzip, xz or bzip2 holds the tar alone; and in a tar, macOS's own tar
+        // reads `._name` as the metadata of the entry that comes next, `name`,
+        // so the zip's `__MACOSX/` mirror leaves it waiting for an entry that
+        // never comes ("Truncated input file"). Elsewhere a tar's `._name`
+        // files are clutter, and a tar.gz is often meant for elsewhere.
         if options.writerFormat == nil {
-            resolved.append(contentsOf: try metadataSidecars(for: resolved, scratch: scratch))
+            resolved.append(contentsOf: try metadataSidecars(
+                for: options.excludeMacData ? kept : resolved, scratch: scratch))
         }
 
         let writeProgress = rebuild
@@ -354,12 +362,13 @@ extension SevenZipArchive {
                           modificationDate: Date?, posixPermissions: UInt16?)
     }
 
-    /// Resolves a user-facing diff into the full list the C bridge expects.
-    /// All source entries are kept unless explicitly removed or moved.
+    /// Resolves a user-facing diff into the full list the C bridge expects:
+    /// the source entries, all kept unless explicitly removed or moved, and the
+    /// additions, apart.
     private static func resolveDiff(
         sourceArchive: SevenZipArchive?,
         items: [ArchiveUpdateItem]
-    ) throws -> [ResolvedItem] {
+    ) throws -> (kept: [ResolvedItem], added: [ResolvedItem]) {
         // Collect removals and moves from the diff.
         var removedIndices: Set<UInt32> = []
         var movedIndices: [UInt32: String] = [:]
@@ -412,8 +421,7 @@ extension SevenZipArchive {
             }
         }
 
-        result.append(contentsOf: additions)
-        return result
+        return (result, additions)
     }
 
     // MARK: - Save As
@@ -439,15 +447,14 @@ extension SevenZipArchive {
         // of their own: extracting what they describe brings them along.
         var kept: [(entry: SevenZipEntry, path: String)] = []
         var hidden: [UInt32] = []
-        var additions: [ResolvedItem] = []
         for item in items {
             switch item {
             case .keep(let index):
                 if let entry = byIndex[index] { kept.append((entry, entry.path)) } else { hidden.append(index) }
             case .move(let index, let path):
                 if let entry = byIndex[index] { kept.append((entry, path)) } else { hidden.append(index) }
-            default:
-                additions.append(item)
+            case .addFile, .addData, .addDirectory:
+                continue // not the source's: the caller keeps additions apart
             }
         }
 
@@ -530,7 +537,7 @@ extension SevenZipArchive {
                 modificationDate: nil, posixPermissions: nil))
         }
 
-        return rebuilt + additions
+        return rebuilt
     }
 
     // MARK: - macOS Metadata

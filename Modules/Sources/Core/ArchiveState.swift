@@ -187,6 +187,11 @@ public class ArchiveState: ObservableObject {
     /// the app-wide center that feeds the extraction progress window;
     /// tests inject their own instance.
     public var progressCenter: ExtractionProgressCenter = .shared
+    /// Where this state reads its settings: the ".." row, the sort order, and
+    /// whether a save given no options leaves Mac-specific data out. Not the
+    /// hidden files: that setting lives in the app group the extensions share,
+    /// read through `Keys`. Tests inject their own.
+    var defaults: UserDefaults = .standard
     /// Set for an archive window's state: the id its extractions carry, so
     /// that the window shows them itself rather than the progress window
     /// (`ExtractionJob.shownIn`). `nil` for one no window shows — Finder's.
@@ -221,6 +226,9 @@ public class ArchiveState: ObservableObject {
     private var openedFile: FileStamp?
 
     public private(set) var openTask: Task<Void, any Error>?
+    /// The temporary files of what was closed last, removed off the main actor
+    /// by `CacheCleaner`. They are gone once this ends.
+    private(set) var cleanTask: Task<Void, Never>?
     /// The add started last. What it adds is read off the main actor, so it is
     /// there once this ends.
     public private(set) var addTask: Task<Bool, Never>?
@@ -367,8 +375,9 @@ extension ArchiveState {
         self.previewItemUrl = nil
         
         updateStatus(.idle)
-        
-        CacheCleaner().clean(tempDirectories: tempDirectories)
+
+        cleanTask = Task { [tempDirectories] in await CacheCleaner().remove(tempDirectories) }
+        tempDirectories = []
     }
     
     public func clean() {
@@ -440,7 +449,7 @@ extension ArchiveState {
     /// button and ⌘↑ go up either way.
     public var showsParentRow: Bool {
         guard !isSearching, canGoUp else { return false }
-        return UserDefaults.standard.bool(forKey: Keys.showParentRow)
+        return defaults.bool(forKey: Keys.showParentRow)
     }
 
     /// Updates the live search. Every change re-filters the entries; clearing
@@ -466,7 +475,7 @@ extension ArchiveState {
         // read once: through its publisher, each read of `entries` costs
         let entries = self.entries
         let keys = entries.values.map(ArchiveItemKey.init)
-        let matches = ArchiveListOrder.current.searched(keys, for: searchText) ?? []
+        let matches = ArchiveListOrder.reading(defaults).searched(keys, for: searchText) ?? []
         return listed(matches.compactMap { entries[$0.id] }, in: entries)
     }
 
@@ -480,7 +489,7 @@ extension ArchiveState {
             try? await Task.sleep(for: .milliseconds(150))
             guard let self, !Task.isCancelled else { return }
             let keys = self.entries.values.map(ArchiveItemKey.init)
-            let matches = await Self.search(keys, for: text, order: .current)
+            let matches = await Self.search(keys, for: text, order: .reading(self.defaults))
             guard !Task.isCancelled, let matches, self.searchText == text else { return }
             let entries = self.entries
             self.childItems = self.listed(matches.compactMap { entries[$0.id] }, in: entries)
@@ -548,7 +557,7 @@ extension ArchiveState {
         searchTask?.cancel()
 
         let children = listedChildren(of: selectedItem)
-        guard UserDefaults.standard.string(forKey: Keys.defaultOrderColumn) != nil else {
+        guard defaults.string(forKey: Keys.defaultOrderColumn) != nil else {
             childItems = children
             return
         }
@@ -557,7 +566,7 @@ extension ArchiveState {
     }
 
     private func sortedForDisplay(_ items: [ArchiveItem]) -> [ArchiveItem] {
-        ArchiveListOrder.current.sortedIndices(items.map(ArchiveItemKey.init)).map { items[$0] }
+        ArchiveListOrder.reading(defaults).sortedIndices(items.map(ArchiveItemKey.init)).map { items[$0] }
     }
 
     /// This stream is the only way to get status from any engine in a concurrency safe way
@@ -1072,7 +1081,8 @@ extension ArchiveState {
         let format = (destination == nil ? writtenCompressedTar : nil)
             ?? CompressionOptions.Format.compressedTar(named: target.lastPathComponent)
             ?? catalog.writtenFormat(forExtension: target.pathExtension) ?? .newArchive
-        let writeOptions = options ?? CompressionOptions(format: format)
+        let writeOptions = options ?? CompressionOptions(
+            format: format, excludeMacData: defaults.bool(forKey: Keys.excludeMacData))
         // MacPacker Lab: a compressed tar is written again whole, in place too,
         // and 7-Zip stores every name of a tar it writes in UTF-8: what the
         // names were read in before no longer applies to them.
@@ -1722,11 +1732,10 @@ extension ArchiveState {
             )
             let result = try await extractor.extract(
                 batch: batch,
+                as: url,
                 onProgress: makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
             )
             tempDirectories.append(result.tempDir)
-            try Task.checkCancellation()
-            try FileManager.default.moveItem(at: result.url, to: url)
         }
         progressCenter.setOnCancel(jobId) {
             cancelFlag.cancel()

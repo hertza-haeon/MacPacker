@@ -211,9 +211,12 @@ public struct CompressionOptions: Sendable {
     /// `name.001`, `name.002`, ... next to the destination. `nil` writes one file.
     public var volumeSize: UInt64?
 
-    /// Leave out the `.DS_Store` files a write adds — Finder's, not something
-    /// anyone means to archive. Entries the archive holds already stay.
-    public var excludeDSStore: Bool
+    /// Leave out the Mac-specific data a write adds: `.DS_Store` files, `._`
+    /// files, `__MACOSX` folders, `Icon\r` files, and the sidecars that would
+    /// carry tags, custom icons, hidden flags and other extended attributes —
+    /// what other systems show as clutter. Entries the archive holds already
+    /// stay, with their sidecars.
+    public var excludeMacData: Bool
 
     /// The format 7-Zip's writer is handed, when it is not `format`'s own name:
     /// the two passes of a compressed tar write a `tar`, then a `gzip`, `xz` or
@@ -236,7 +239,7 @@ public struct CompressionOptions: Sendable {
         wordSize: UInt32? = nil,
         solidBlockSize: UInt64? = nil,
         volumeSize: UInt64? = nil,
-        excludeDSStore: Bool = false
+        excludeMacData: Bool = false
     ) {
         self.format = format
         self.level = level
@@ -249,6 +252,6 @@ public struct CompressionOptions: Sendable {
         self.wordSize = wordSize
         self.solidBlockSize = solidBlockSize
         self.volumeSize = volumeSize
-        self.excludeDSStore = excludeDSStore
+        self.excludeMacData = excludeMacData
     }
 }

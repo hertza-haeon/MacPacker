@@ -85,22 +85,31 @@ final class MacPackerUITests: XCTestCase {
         return app
     }
 
-    /// Launches the app the way a Finder action does when the app is not
-    /// running: with the url the Finder extension sends, and nothing else.
-    private func launchApp(
-        finderAction action: String, files: [URL], target: URL, arguments: [String] = []
-    ) -> XCUIApplication {
+    /// The url the Finder extension sends for `action`.
+    private func finderActionUrl(_ action: String, files: [URL], target: URL) -> URL {
         let encode: (URL) -> String? = { $0.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) }
         var comps = URLComponents(string: "\(appUrlScheme)://\(action)")!
         comps.queryItems = [
             URLQueryItem(name: "files", value: files.compactMap(encode).joined(separator: ",")),
             URLQueryItem(name: "target", value: encode(target)),
         ]
-        return launchApp(opening: comps.url!, arguments: arguments)
+        return comps.url!
+    }
+
+    /// Launches the app the way a Finder action does when the app is not
+    /// running: with the url the Finder extension sends, and nothing else.
+    private func launchApp(
+        finderAction action: String, files: [URL], target: URL, arguments: [String] = []
+    ) -> XCUIApplication {
+        launchApp(opening: finderActionUrl(action, files: files, target: target), arguments: arguments)
     }
 
     /// Launches the app with `url` as its launch event: a Finder action's url,
     /// or a file as a double click in Finder hands it over.
+    ///
+    /// XCTest hands the url over through its testmanagerd, which a Debug
+    /// build trusts with Finder actions as it trusts its Finder extension
+    /// (#286). A url the runner opens itself is refused.
     private func launchApp(opening url: URL, arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.terminate()
@@ -217,15 +226,10 @@ final class MacPackerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["hello.txt"].waitForExistence(timeout: 10))
 
         // fire the Finder action: compress hello.txt in dir
-        var comps = URLComponents(string: "\(appUrlScheme)://compress")!
-        comps.queryItems = [
-            URLQueryItem(name: "files", value: payload.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)),
-            URLQueryItem(name: "target", value: dir.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)),
-        ]
-        NSWorkspace.shared.open(comps.url!)
+        app.open(finderActionUrl("compress", files: [payload], target: dir))
 
         // the sandbox asks once for folder access — confirm the prompt
-        confirmAccessPanel(app, button: "Give access to MacPacker")
+        confirmAccessPanel(app, button: "Grant Access")
 
         // the zip appears next to the file and contains it
         let created = dir.appendingPathComponent("hello.zip")
@@ -238,6 +242,31 @@ final class MacPackerUITests: XCTestCase {
         let entries = try zipEntries(created)
         XCTAssertTrue(entries.contains("hello.txt"), "hello.txt missing: \(entries)")
         try run("/usr/bin/unzip", ["-t", created.path])
+        app.terminate()
+    }
+
+    /// A Finder action is carried out only when MacPacker's Finder extension
+    /// asked for it. Any other app can open the same url, and it used to be
+    /// carried out under the user's folder grants (#286). The test runner
+    /// opens it here, as any app could.
+    func testFinderActionFromAnotherAppIsRefused() throws {
+        let dir = try makeWorkDir("refused")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let payload = dir.appendingPathComponent("hello.txt")
+        try "hello zip".write(to: payload, atomically: true, encoding: .utf8)
+
+        // launch with a dummy archive so the welcome window stays away
+        let dummyZip = dir.appendingPathComponent("dummy.zip")
+        try run("/usr/bin/zip", [dummyZip.path, "hello.txt"], cwd: dir)
+        let app = launchApp(arguments: ["-ArchivePath", dummyZip.path])
+        XCTAssertTrue(app.staticTexts["hello.txt"].waitForExistence(timeout: 10))
+
+        NSWorkspace.shared.open(finderActionUrl("compress", files: [payload], target: dir))
+
+        // carried out, it asks for the folder first: answer as a user would
+        confirmAccessPanel(app, button: "Grant Access", timeout: 5)
+        XCTAssertFalse(waitForFile(dir.appendingPathComponent("hello.zip"), timeout: 5),
+                       "a Finder action another app sent was carried out")
         app.terminate()
     }
 
@@ -683,7 +712,7 @@ final class MacPackerUITests: XCTestCase {
         XCTAssertTrue(password.waitForExistence(timeout: 10) && password.isHittable,
                       "the options do not show the password field")
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "saveOptions.volume").firstMatch.exists)
-        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "saveOptions.excludeDSStore").firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "saveOptions.excludeMacData").firstMatch.exists)
         XCTAssertEqual(panel.frame.width, max(first, second), "the window did not widen for the options")
         app.terminate()
     }
@@ -976,9 +1005,9 @@ final class MacPackerUITests: XCTestCase {
     }
 
     /// The panel remembers per format and across launches, as 7-Zip does: 7z at
-    /// Fastest with .DS_Store left out, saved, app quit — the next Save As has
-    /// them again once 7z is picked, and no password. Writes the debug app's
-    /// own defaults, which is the point.
+    /// Fastest with Mac-specific data left out, saved, app quit — the next Save
+    /// As has them again once 7z is picked, and no password. Writes the debug
+    /// app's own defaults, which is the point.
     func testSaveSettingsComeBackAfterRelaunch() throws {
         let (app, dir) = try openSaveAs("remember")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -986,7 +1015,7 @@ final class MacPackerUITests: XCTestCase {
         choose("7z", in: "saveFormatPicker", app)
         choose("Fastest", in: "saveLevelPicker", app)
         app.buttons["saveOptionsButton"].firstMatch.click()
-        let exclude = app.descendants(matching: .any).matching(identifier: "saveOptions.excludeDSStore").firstMatch
+        let exclude = app.descendants(matching: .any).matching(identifier: "saveOptions.excludeMacData").firstMatch
         XCTAssertTrue(exclude.waitForExistence(timeout: 10), "no options sheet")
         if !isOn(exclude) { exclude.click() }
         app.buttons["saveOptionsDoneButton"].firstMatch.click()
@@ -1005,9 +1034,9 @@ final class MacPackerUITests: XCTestCase {
         XCTAssertEqual(again.popUpButtons["saveLevelPicker"].firstMatch.value as? String, "Fastest",
                        "7z's level was not remembered")
         again.buttons["saveOptionsButton"].firstMatch.click()
-        let excludeAgain = again.descendants(matching: .any).matching(identifier: "saveOptions.excludeDSStore").firstMatch
+        let excludeAgain = again.descendants(matching: .any).matching(identifier: "saveOptions.excludeMacData").firstMatch
         XCTAssertTrue(excludeAgain.waitForExistence(timeout: 10), "no options sheet")
-        XCTAssertTrue(isOn(excludeAgain), "the .DS_Store choice was not remembered")
+        XCTAssertTrue(isOn(excludeAgain), "the Mac-specific data choice was not remembered")
         XCTAssertEqual((again.secureTextFields["saveOptions.password"].firstMatch.value as? String) ?? "", "",
                        "a password must never be remembered")
         again.buttons["saveOptionsDoneButton"].firstMatch.click()

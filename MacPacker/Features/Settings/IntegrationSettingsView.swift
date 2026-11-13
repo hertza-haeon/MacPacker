@@ -69,6 +69,24 @@ struct IntegrationSettingsView: View {
             } header: {
                 Text(.labSettingsSectionCompress)
             }
+
+            HStack(alignment: .top) {
+                Text(.settingsFinderToolbarIcon)
+                    .frame(width: 160, alignment: .trailing)
+
+                // Finder takes the toolbar image only when it starts the
+                // extension, and neither the app nor the extension can make
+                // it start a new one.
+                VStack(alignment: .leading, spacing: 4) {
+                    ToolbarIconPicker()
+
+                    Text(.settingsToolbarIconHint)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 8)
+                }
+                .frame(width: 240, alignment: .leading)
+            }
         }
         .formStyle(.grouped)
         .onAppear(perform: refresh)
@@ -118,6 +136,7 @@ private struct FinderMenuItemToggle: View {
         case .compressToZip: .labFinderCompressToZip
         case .compressTo7z: .labFinderCompressToSevenZip
         case .compressToDatedZip: .labFinderCompressToDatedZip
+        case .compressForWindows: .labFinderCompressForWindows
         case .compressEachSeparately: .labFinderCompressEach
         case .compressFolderContents: .labFinderCompressContents
         }
@@ -130,6 +149,19 @@ private struct FinderMenuCascadedToggle: View {
 
     var body: some View {
         SettingToggle(title: .labSettingsGroupInSubmenu(Constants.appName), isOn: $isCascaded)
+    }
+}
+
+/// The icon of the MacPacker button in Finder's toolbar.
+private struct ToolbarIconPicker: View {
+    @AppStorage(FinderMenuSettings.toolbarIconKey, store: FinderMenuSettings.defaults)
+    private var icon: ToolbarIcon = .colored
+
+    var body: some View {
+        Picker(String(""), selection: $icon) {
+            Text(.settingsToolbarIconColored).tag(ToolbarIcon.colored)
+            Text(.settingsToolbarIconSubtle).tag(ToolbarIcon.subtle)
+        }
     }
 }
 

@@ -633,7 +633,9 @@ extension AllCoreTests {
         /// The rest of the list behind the switch's info button (#236): with the
         /// switch on, a new archive holds the files and folders and nothing
         /// Mac-specific about them; off, all of it goes in.
-        @MainActor @Test(arguments: CompressionOptions.Format.allCases)
+        /// MacPacker Lab: zip and 7z; a compressed tar takes no sidecars at all
+        /// (`compressedTarsLeaveMacDataOutWhenAsked`).
+        @MainActor @Test(arguments: CompressionOptions.Format.allCases.filter { !$0.isCompressedTar })
         func newArchivesLeaveMacDataOutOnlyWhenAsked(_ format: CompressionOptions.Format) async throws {
             for exclude in [false, true] {
                 let dir = try makeTempDir()
@@ -691,8 +693,9 @@ extension AllCoreTests {
 
         /// A Save As writes the archive's own entries again, their sidecars too:
         /// leaving Mac-specific data out is about what the save adds, as it is
-        /// for `.DS_Store`.
-        @MainActor @Test(arguments: CompressionOptions.Format.allCases)
+        /// for `.DS_Store`. MacPacker Lab: zip and 7z, the formats that hold
+        /// sidecars.
+        @MainActor @Test(arguments: CompressionOptions.Format.allCases.filter { !$0.isCompressedTar })
         func aSaveAsKeepsTheMacDataOfWhatTheArchiveHolds(_ format: CompressionOptions.Format) async throws {
             let dir = try makeTempDir()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -720,6 +723,39 @@ extension AllCoreTests {
             #expect(paths.contains("kept.txt") && paths.contains("added.txt"), "\(paths)")
             #expect(paths.contains("__MACOSX/._kept.txt"), "the archive's own entry keeps its metadata: \(paths)")
             #expect(!paths.contains("__MACOSX/._added.txt"), "\(paths)")
+        }
+
+        /// MacPacker Lab: a compressed tar holds no sidecars of its own either way
+        /// (macOS's tar would read a `._name` as the next entry's metadata). With
+        /// the switch on, what is Mac-specific among the files picked stays out
+        /// too: a `__MACOSX` folder, a custom icon's `Icon\r` file.
+        @MainActor @Test(arguments: CompressionOptions.Format.allCases.filter(\.isCompressedTar))
+        func compressedTarsLeaveMacDataOutWhenAsked(_ format: CompressionOptions.Format) async throws {
+            for exclude in [false, true] {
+                let dir = try makeTempDir()
+                defer { try? FileManager.default.removeItem(at: dir) }
+                let folder = try macFolder(in: dir)
+
+                let state = ArchiveState(catalog: ArchiveTypeCatalog(), engineSelector: ArchiveEngineSelector7zip())
+                state.create()
+                #expect(await state.add(url: folder).value)
+                let target = dir.appendingPathComponent("out.\(format.rawValue)")
+                await state.save(to: target, options: .init(format: format, excludeMacData: exclude))?.value
+                #expect(state.error == nil, "\(state.error ?? "")")
+
+                // 7-Zip's listing of the tar inside: macOS's tar would take the
+                // `__MACOSX` folder's `._plain.txt` for metadata
+                let inner = dir.appendingPathComponent("inner")
+                try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+                let tar = try #require(try SevenZipArchive(url: target).extract(index: 0, to: inner)[0])
+                let paths = try SevenZipArchive(url: tar).entries.map(\.path)
+                for path in ["Mac/plain.txt", "Mac/tagged.txt", "Mac/hidden.txt", "Mac/Iconic/inside.txt"] {
+                    #expect(paths.contains(path), "the files themselves always go in: \(paths)")
+                }
+                #expect(!paths.contains { $0.hasPrefix("__MACOSX") }, "no sidecars in a tar: \(paths)")
+                let macFiles = paths.filter { $0.hasPrefix("Mac/__MACOSX") || $0.hasPrefix("Mac/Iconic/Icon") }
+                #expect(macFiles.isEmpty == exclude, "\(macFiles)")
+            }
         }
 
         /// Finder's Compress, a Service and a Save hand no options from a panel:

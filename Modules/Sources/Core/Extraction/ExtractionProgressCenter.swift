@@ -31,12 +31,12 @@ public struct ExtractionJob: Identifiable, Equatable, Sendable {
         case cancelled
     }
 
-    /// What the job does. The window shows both alike; what is said around it
+    /// What the job does. The window shows all alike; what is said around it
     /// differs — the quit warning, the name of the window.
     public enum Kind: Equatable, Sendable {
         case extraction
         case compression
-        /// MacPacker Lab: "Test Archive", which writes nothing the user sees.
+        /// Decodes the archive and writes nothing: its outcome is the verdict.
         case test
 
         fileprivate var label: String {
@@ -222,16 +222,13 @@ public final class ExtractionProgressCenter: ObservableObject {
     /// What the running jobs are doing, for the wording around the window:
     /// extraction while one is running, compression when those are all that is
     /// left, `nil` when nothing is.
-    ///
-    /// A test is never it: it can be stopped at any point with nothing lost,
-    /// so quitting under it needs no warning.
     public var runningKind: ExtractionJob.Kind? {
         Self.runningKind(of: jobs)
     }
 
     /// `runningKind` over `jobs` only: those one window shows, say.
     public static func runningKind(of jobs: [ExtractionJob]) -> ExtractionJob.Kind? {
-        let running = jobs.filter { !$0.isFinished && $0.kind != .test }
+        let running = jobs.filter { !$0.isFinished }
         if running.contains(where: { $0.kind == .extraction }) { return .extraction }
         return running.isEmpty ? nil : .compression
     }

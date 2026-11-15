@@ -462,13 +462,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let alert = NSAlert()
         alert.alertStyle = .warning
         switch running {
-        // MacPacker Lab: a test is never `runningKind`
-        case .extraction, .test:
+        case .extraction:
             alert.messageText = String(localized: .appExtractionInProgress)
             alert.informativeText = String(localized: .appQuitDuringExtractionWarning)
         case .compression:
             alert.messageText = String(localized: .appCompressionInProgress)
             alert.informativeText = String(localized: .appQuitDuringCompressionWarning)
+        case .test:
+            // a test writes nothing, so stopping one loses nothing; the cache still goes
+            quitOnceCacheIsCleared()
+            return .terminateLater
         }
         alert.addButton(withTitle: String(localized: .commonCancel))
         alert.addButton(withTitle: String(localized: .appQuitAnyway))

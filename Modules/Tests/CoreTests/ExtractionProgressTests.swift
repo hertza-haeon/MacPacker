@@ -674,21 +674,5 @@ extension AllCoreTests {
             #expect(whileRunning == [false, inWindow])
             #expect(state.isBusyWithItsOwnExtraction == false)
         }
-
-        /// MacPacker Lab: a Test archive also makes the state busy and is shown
-        /// in the window's own bar, so it is left to that bar too.
-        @Test func theStatusBarLeavesTheWindowItsTestArchive() async throws {
-            let state = try await openedState()
-            let center = ExtractionProgressCenter()
-            state.progressCenter = center
-            let window = UUID()
-            state.windowID = window
-            center.windowOpened(window)
-
-            let testing = state.test()
-            #expect(state.isBusyWithItsOwnExtraction)
-            _ = await testing.value
-            #expect(state.isBusyWithItsOwnExtraction == false)
-        }
     }
 }

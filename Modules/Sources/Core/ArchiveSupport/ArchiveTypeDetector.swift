@@ -52,7 +52,7 @@ final public class ArchiveTypeDetector: Sendable {
         self.catalog = catalog
     }
 
-    /// The catalog's format of that id.
+    /// The format the catalog lists under `id`: one of a compound's components.
     public func type(for id: String) -> ArchiveTypeDto? {
         catalog.getType(for: id)
     }

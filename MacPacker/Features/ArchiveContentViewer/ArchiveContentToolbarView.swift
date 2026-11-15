@@ -107,7 +107,8 @@ struct ArchiveContentToolbarView: ToolbarContent {
                 }
             }
             .help(.archiveBrowseQuickLook)
-            
+            .disabled(!archiveState.canReadArchive || archiveState.selectedItems.isEmpty)
+
             Button {
                 ExtractionFollowUp.extractSelectedAskingIfNeeded(
                     archiveState, in: ExtractionFollowUp.window(showing: archiveState))
@@ -119,6 +120,7 @@ struct ArchiveContentToolbarView: ToolbarContent {
                 }
             }
             .help(.commonExtractSelected)
+            .disabled(!archiveState.canReadArchive || archiveState.selectedItems.isEmpty)
             
             Button {
                 ExtractionFollowUp.extractArchiveAskingIfNeeded(
@@ -131,6 +133,7 @@ struct ArchiveContentToolbarView: ToolbarContent {
                 }
             }
             .help(.commonExtractArchive)
+            .disabled(!archiveState.canReadArchive)
             
             Spacer()
 
@@ -145,6 +148,20 @@ struct ArchiveContentToolbarView: ToolbarContent {
             }
             .help(.archiveNewTabHint)
             
+            Button {
+                if let url = archiveState.url { archiveState.test(url) }
+            } label: {
+                Label {
+                    Text(.commonTestArchive)
+                } icon: {
+                    Image(systemName: "checkmark.seal")
+                }
+            }
+            .help(.commonTestArchive)
+            .disabled(!archiveState.canReadArchive)
+
+            Spacer()
+
             Menu {
                 Button {
                     openQuickCompressWindow()

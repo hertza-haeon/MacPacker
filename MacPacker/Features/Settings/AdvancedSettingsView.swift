@@ -10,9 +10,15 @@ import Foundation
 import SwiftUI
 import tb
 
-/// MacPacker Lab: the cache, and the logs for a bug report.
+private let log = tb.Logger(subsystem: "app.MacPacker", category: "cache")
+
+/// MacPacker Lab: the caches, and what goes with a bug report: the logs, and
+/// main's analysis of one archive (#416).
 struct AdvancedSettingsView: View {
+    @EnvironmentObject private var appState: AppState
     private let applicationSupportDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+    /// The archive the analysis sheet is showing, if it is up.
+    @State private var analyzedArchive: URL?
 
     var body: some View {
         Form {
@@ -29,14 +35,25 @@ struct AdvancedSettingsView: View {
                         }
                         .help(.settingsShowApplicationSupportFolder)
 
+                        // the app's cache, then Quick Look's, as main's does
                         Button {
-                            Task { await CacheCleaner().removeAll() }
+                            Task { await clearCache() }
                         } label: {
                             Text(.labSettingsClear)
                         }
                         .help(.settingsClearCacheHint)
                     }
                     .disabled(applicationSupportDirectory == nil)
+                }
+
+                SettingRow(title: .labSettingsQuickLookCache,
+                           detail: .labSettingsQuickLookCacheDetail) {
+                    Button {
+                        Task { await openQuickLookCache() }
+                    } label: {
+                        Text(.labSettingsShowInFinder)
+                    }
+                    .help(.settingsOpenQuickLookCache)
                 }
             } header: {
                 Text(.labSettingsSectionCache)
@@ -50,11 +67,74 @@ struct AdvancedSettingsView: View {
                         Text(.labSettingsExport)
                     }
                 }
+
+                SettingRow(title: .labSettingsAnalyzeArchive, detail: .labSettingsAnalyzeArchiveDetail) {
+                    Button {
+                        analyzedArchive = chooseArchiveToAnalyze()
+                    } label: {
+                        Text(.labSettingsAnalyze)
+                    }
+                }
             } header: {
                 Text(.labSettingsSectionTroubleshooting)
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: Binding(
+            get: { analyzedArchive != nil },
+            set: { if !$0 { analyzedArchive = nil } }
+        )) {
+            if let analyzedArchive {
+                ArchiveAnalysisView(
+                    url: analyzedArchive,
+                    analyzer: ArchiveAnalyzer(catalog: appState.catalog, engineSelector: appState.engineSelector))
+            }
+        }
+    }
+
+    /// The archive to analyze. Any file can be picked: one MacPacker does not
+    /// take for an archive is what a report is most needed for.
+    private func chooseArchiveToAnalyze() -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
+    /// The app's cache, then Quick Look's.
+    private func clearCache() async {
+        await CacheCleaner().removeAll()
+        guard let caches = await quickLookCaches() else { return }
+        await Sandbox.access(url: caches) {
+            await CacheCleaner().removeAll(in: caches.appending(component: "ta", directoryHint: .isDirectory))
+        }
+    }
+
+    private func openQuickLookCache() async {
+        guard let caches = await quickLookCaches() else { return }
+        // Finder is shown only what the app may read itself.
+        let shown = Sandbox.accessSync(url: caches) {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: caches.path)
+        }
+        log.info("Quick Look cache opened", context: ["shown": "\(shown)"])
+    }
+
+    /// Quick Look's `Caches`. It is in the extension's own container, which the
+    /// sandbox opens to the app only once the user grants it: the first time, a
+    /// panel asks; later, the stored grant is used. Nil when Quick Look never
+    /// ran or the user said no.
+    private func quickLookCaches() async -> URL? {
+        guard let home = FolderAccessStore.homeFolder, let app = Bundle.main.bundleIdentifier else { return nil }
+        let caches = home.appending(
+            path: "Library/Containers/\(app).QuickLookExtension/Data/Library/Caches", directoryHint: .isDirectory)
+        // Quick Look never ran: no panel for a folder that is not there.
+        guard FileManager.default.fileExists(atPath: caches.path) else {
+            log.info("No Quick Look cache")
+            return nil
+        }
+        return await FolderAccessStore.shared.ensureAccess(forFolder: caches) ? caches : nil
     }
 
     private func exportLogs() {

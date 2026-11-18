@@ -90,31 +90,43 @@ public struct ArchiveExtractionResult: Sendable {
     }
 }
 
-/// MacPacker Lab: what testing an archive found.
-public struct ArchiveTestReport: Sendable, Equatable {
-    /// Paths in the archive of the entries that did not decode, in archive
-    /// order — empty when the engine cannot tell which.
-    public let damagedPaths: [String]
-    /// What went wrong; `nil` when every entry decoded.
-    public let problem: String?
+/// What testing an archive found.
+public struct ArchiveTestResult: Equatable, Sendable {
+    /// The entries that did not decode or did not match their checksum, by path.
+    public let damagedEntries: [String]
+    /// The entries compressed with a method that can't be decoded here, by
+    /// path: whether they are whole can't be told, which is no damage.
+    public let uncheckedEntries: [String]
+    /// How the archive reports damage of its own, nil when it reports none.
+    /// Every entry can read and the archive still not be whole.
+    public let archiveDamage: ArchiveDamage?
 
-    public var isIntact: Bool { problem == nil }
+    public init(damagedEntries: [String], uncheckedEntries: [String] = [], archiveDamage: ArchiveDamage? = nil) {
+        self.damagedEntries = damagedEntries
+        self.uncheckedEntries = uncheckedEntries
+        self.archiveDamage = archiveDamage
+    }
 
-    public init(damagedPaths: [String] = [], problem: String? = nil) {
-        self.damagedPaths = damagedPaths
-        self.problem = problem
+    /// Whether anything is damaged: an entry, or the archive itself.
+    public var isDamaged: Bool {
+        !damagedEntries.isEmpty || archiveDamage != nil
+    }
+
+    /// Whether every entry was checked, and nothing is damaged.
+    public var isIntact: Bool {
+        !isDamaged && uncheckedEntries.isEmpty
     }
 }
 
-/// MacPacker Lab: what "Test Archive" found, for the window to say.
-public struct ArchiveTestResult: Sendable, Equatable {
-    public let archiveName: String
-    /// See `ArchiveTestReport.damagedPaths`.
-    public let damagedPaths: [String]
-    /// What went wrong; `nil` when every entry decoded.
-    public let problem: String?
-
-    public var isIntact: Bool { problem == nil }
+/// How an archive is damaged of its own, where no entry has to show it.
+public enum ArchiveDamage: String, Sendable {
+    /// Cut short: what came after the cut is gone, files with it maybe.
+    case endsEarly
+    /// A checksum of its own no longer matches: part of it changed after it
+    /// was made.
+    case checksum
+    /// Anything else, its headers broken for one.
+    case other
 }
 
 /// Byte-level progress reported by an engine during extraction. `completed`
@@ -201,46 +213,31 @@ public protocol ArchiveEngine: Sendable {
         onProgress: ArchiveExtractionProgress?
     ) async throws
 
-    /// MacPacker Lab: decodes every entry of the archive and checks it,
-    /// leaving nothing behind. A damaged archive is a report, not an error;
-    /// what throws is a test that could not run, or was stopped.
+    /// Decodes every entry of the archive at `url` and checks it against its
+    /// checksum, writing nothing. Asked only of an engine whose catalog entry
+    /// declares `test`; the others keep the default implementation, which throws
+    /// ``ArchiveError/testUnsupported``.
     func test(
         _ url: URL,
         passwordResolver: @escaping ArchivePasswordResolver,
         onProgress: ArchiveExtractionProgress?
-    ) async throws -> ArchiveTestReport
-}
-
-public extension ArchiveEngine {
-    /// An engine with no test of its own extracts everything into a
-    /// temporary folder, removed once it is done: what extracts there is what
-    /// would anywhere. It costs the disk space of the extracted archive while
-    /// it runs.
-    func test(
-        _ url: URL,
-        passwordResolver: @escaping ArchivePasswordResolver,
-        onProgress: ArchiveExtractionProgress?
-    ) async throws -> ArchiveTestReport {
-        guard let folder = ArchiveSupportUtilities().createTempDirectory()?.url else {
-            throw ArchiveError.extractionFailed("Could not create a temporary folder for the test.")
-        }
-        defer { try? FileManager.default.removeItem(at: folder) }
-        do {
-            try await extract(url, to: folder, passwordResolver: passwordResolver, onProgress: onProgress)
-            try Task.checkCancellation()
-            return ArchiveTestReport()
-        } catch let error as CancellationError {
-            throw error
-        } catch ArchiveError.passwordCancelled {
-            throw ArchiveError.passwordCancelled
-        } catch {
-            return ArchiveTestReport(problem: error.localizedDescription)
-        }
-    }
+    ) async throws -> ArchiveTestResult
 }
 
 public extension ArchiveEngine {
     func readingNames(as encoding: ArchiveNameEncoding?) -> any ArchiveEngine { self }
+
+    // ponytail: 7-Zip only, the one engine the catalog declares `test` for.
+    // XADMaster checks a checksum while it extracts, and its reads raise
+    // exceptions Swift cannot catch, so testing there means extracting to a temp
+    // folder; add it, and `test` to its catalog entries, if StuffIt users ask.
+    func test(
+        _ url: URL,
+        passwordResolver: @escaping ArchivePasswordResolver,
+        onProgress: ArchiveExtractionProgress?
+    ) async throws -> ArchiveTestResult {
+        throw ArchiveError.testUnsupported
+    }
 
     func extract(
         items: [ArchiveItem],

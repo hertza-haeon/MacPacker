@@ -132,6 +132,7 @@ private struct FinderMenuItemToggle: View {
         case .extractHere: .labFinderExtractHere
         case .extractToFolder: .labFinderExtractToName
         case .extractToChosenFolder: .labFinderExtractTo
+        case .testArchive: .labFinderTestArchive
         case .addToArchive: .labFinderAddToArchive
         case .compressToZip: .labFinderCompressToZip
         case .compressTo7z: .labFinderCompressToSevenZip

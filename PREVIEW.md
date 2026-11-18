@@ -1,6 +1,6 @@
 # MacPacker Lab: a preview to try
 
-This branch is my personal test build of MacPacker. It brings my five open pull requests together, with some further ideas I tried on top of them. It is up to date with `main` as of 13 November.
+This branch is my personal test build of MacPacker. It brings my five open pull requests together, with some further ideas I tried on top of them. It is up to date with `main` as of 18 November, with 1.3.0.
 
 It's here so you can try the changes in the app instead of reading through them first. It isn't meant to replace anything, and nothing in it needs an answer. Each change is yours to take, leave, or ask for as a small pull request of its own, whenever it suits you.
 
@@ -30,7 +30,6 @@ Then run the MacPacker scheme. It builds as your usual Debug app and shares that
 **New features**
 
 - **Default app in one click:** a button in Settings ▸ Formats makes MacPacker the default app for archive formats. Unticking a format gives it back to the app that had it before.
-- **Test archive** (File menu): checks every file without extracting anything, and names any damaged ones.
 - **tar.gz, tar.xz and tar.bz2:** created alongside 7z and zip, split into volumes if needed, and edited like a zip or a 7z.
 - **Notifications** when a long extraction, compression or test ends while MacPacker is in the background. Settings ▸ General can turn them off or change the minimum length (15 seconds, 30 seconds or 1 minute).
 

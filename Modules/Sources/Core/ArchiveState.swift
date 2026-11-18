@@ -118,9 +118,6 @@ public class ArchiveState: ObservableObject {
     /// `openError`, nothing else would: the status bar just stops, and the
     /// window looks saved.
     @Published private(set) public var saveError: String? = nil
-    /// MacPacker Lab: what the last "Test Archive" found, until the user has
-    /// seen it. A test that was stopped leaves none.
-    @Published private(set) public var testResult: ArchiveTestResult? = nil
     /// MacPacker Lab: above this many entries, a search waits for a pause
     /// in typing and runs off the main actor: on 100,000 entries each
     /// keystroke had held the window for up to a second.
@@ -197,14 +194,13 @@ public class ArchiveState: ObservableObject {
     /// (`ExtractionJob.shownIn`). `nil` for one no window shows — Finder's.
     public var windowID: UUID?
     /// The job of the Extract archive under way, which is what makes the
-    /// state busy while it runs. MacPacker Lab: or of the Test archive.
+    /// state busy while it runs.
     @Published private var wholeExtractionJob: UUID?
 
     /// Whether the state is busy with an Extract archive that its window
     /// shows itself, with its own Cancel, so the status bar needn't. Extract
     /// selected never makes the state busy: while one runs, whatever does is
-    /// something else, and the status bar shows it. MacPacker Lab: a Test
-    /// archive is shown the same way, and left to the window too.
+    /// something else, and the status bar shows it.
     public var isBusyWithItsOwnExtraction: Bool {
         guard isBusy, let windowID, let job = wholeExtractionJob else { return false }
         return progressCenter.jobs(shownIn: windowID).contains { $0.id == job && !$0.isFinished }
@@ -270,7 +266,7 @@ extension ArchiveState {
             }
 
             // if not cached, ask the user to provide the password
-            passwordLog.info("Password requested", context: [
+            passwordLog.notice("Password requested", context: [
                 "archive": request.url.lastPathComponent,
                 "attempt": String(request.attempt)
             ])
@@ -333,7 +329,6 @@ extension ArchiveState {
         // A failed open sets its reason after this, so its alert still shows.
         self.openError = nil
         self.saveError = nil
-        self.testResult = nil
         searchTask?.cancel()
         searchTask = nil
 
@@ -380,7 +375,10 @@ extension ArchiveState {
         tempDirectories = []
     }
     
+    /// Closing the window or the Quick Look preview: a load still running
+    /// stops, so it can't bring its files back after they are gone.
     public func clean() {
+        cancelCurrentOperation()
         reset()
     }
 
@@ -393,15 +391,17 @@ extension ArchiveState {
     public func clearSaveError() {
         saveError = nil
     }
-
-    /// MacPacker Lab: puts away the test's result once the user has seen it.
-    public func clearTestResult() {
-        testResult = nil
-    }
     
     /// Cancels the current operation which can be either loading the archive or extracting
     /// anything from the archive
     public func cancelCurrentOperation() {
+        // also on every window close, when nothing is running
+        if isBusy {
+            log.notice("Stopping the running operation", context: [
+                "file": url?.lastPathComponent ?? "-",
+                "adding": "\(addCancel != nil)"
+            ])
+        }
         // Files being read for an add: stop reading, and leave the archive as
         // it is. Below is for a load, and ends in a reset.
         if let addCancel {
@@ -1028,6 +1028,13 @@ extension ArchiveState {
         canBeEdited && !isSaving && selectedItem.map { !isWithinOpenedArchive($0) } == true
     }
 
+    /// Whether there is an archive file to preview, extract or test from: the
+    /// start page and a new archive never saved have none, and a save is
+    /// rewriting it.
+    public var canReadArchive: Bool {
+        url != nil && root != nil && !isSaving
+    }
+
     /// Saves the pending changes.
     ///
     /// - For an archive loaded from disk, the changes are applied in place.
@@ -1249,8 +1256,11 @@ extension ArchiveState {
         self.openedFile = FileStamp(url)
         self.name = splitSetName(for: url)
         self.ext = url.pathExtension
-        log.info("Opening archive", context: ["file": url.lastPathComponent, "ext": url.pathExtension])
-        
+        // The steps of an open are notices, the level macOS keeps for the logs
+        // a user exports: where they stop is where a load hung (#413).
+        log.notice("Opening archive", context: ["file": url.lastPathComponent, "ext": url.pathExtension])
+        let start = Date()
+
         openTask = Task {
             do {
                 let passwordResolver = makePasswordResolver()
@@ -1347,7 +1357,8 @@ extension ArchiveState {
                     "file": url.lastPathComponent,
                     "entries": "\(self.entries.count)",
                     "topLevelItems": "\(self.childItems?.count ?? 0)",
-                    "hasTree": "\(loaderResult.hasTree)"
+                    "hasTree": "\(loaderResult.hasTree)",
+                    "seconds": String(format: "%.3f", Date().timeIntervalSince(start))
                 ])
 
                 updateStatusText(nil)
@@ -1360,6 +1371,11 @@ extension ArchiveState {
                 
                 try Task.checkCancellation()
             } catch is CancellationError {
+                log.notice("Archive load stopped", context: [
+                    "file": url.lastPathComponent,
+                    "superseded": "\(generation != self.openGeneration)",
+                    "seconds": String(format: "%.3f", Date().timeIntervalSince(start))
+                ])
                 // Cancelled because a newer open replaced this one: that open now
                 // owns the state, so leave it alone.
                 guard generation == self.openGeneration else { return }
@@ -1971,75 +1987,53 @@ extension ArchiveState {
         return task
     }
     
-    /// MacPacker Lab: whether the window's archive can be tested — it is a
-    /// file on disk, and nothing else runs in the window.
-    public var canTest: Bool {
-        hasArchive && url != nil && root != nil && !isBusy && !isSaving
-    }
+    //
+    // MARK: Test
+    //
 
-    /// MacPacker Lab: tests the window's archive — every entry is decoded and
-    /// checked, and nothing is written where the user would see it. Shown as a
-    /// job at the window's foot while it runs; what it found is
-    /// `testResult`.
-    ///
-    /// The archive on disk is what is tested: edits not yet saved are not in
-    /// it.
+    /// Tests the archive at `url`: every entry has to decompress and match its
+    /// checksum, and nothing is written. The File menu tests the window's own
+    /// archive, Finder's "Test Archive" a file no window has open — it is never
+    /// listed, so a compound is not decompressed to disk first. The verdict goes
+    /// to the progress center, and stays there until the window showing it is
+    /// closed.
     @discardableResult
-    public func test() -> Task<ArchiveTestResult?, Never> {
-        let archiveName = name ?? url?.lastPathComponent ?? "Archive"
+    public func test(_ url: URL) -> Task<Void, Never> {
         let jobId = progressCenter.begin(
             kind: .test,
-            archiveName: archiveName,
+            // not `name`: with a nested archive open, that is the nested one's
+            archiveName: splitSetName(for: url),
             destination: nil,
-            shownIn: windowID,
-            itemCount: entries.values.count(where: { $0.type == .file }),
-            totalBytes: (uncompressedSize ?? 0) > 0 ? uncompressedSize : nil
+            itemCount: 0,
+            totalBytes: nil
         )
-        isBusy = true
-        wholeExtractionJob = jobId
-        updateStatus(.processing)
-
+        let loader = ArchiveLoader(
+            archiveTypeDetector: archiveTypeDetector,
+            archiveEngineSelector: effectiveEngineSelector,
+            passwordResolver: makePasswordResolver(),
+            folderAccessResolver: makeFolderAccessResolver()
+        )
         let cancelFlag = ExtractionCancelFlag()
-        let task = Task { () -> ArchiveTestResult? in
-            let result: ArchiveTestResult?
+        let progress = makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
+        let task = Task {
             do {
-                guard let root,
-                      let (archiveTypeId, archiveUrl) = ArchiveSupportUtilities().findHandlerAndUrl(for: root, in: entries),
-                      let engine = effectiveEngineSelector.engine(for: archiveTypeId) else {
-                    throw ArchiveError.extractionFailed("No archive handler found")
-                }
-                let passwordResolver = makePasswordResolver()
-                let onProgress = makeEngineProgress(jobId: jobId, cancelFlag: cancelFlag)
-                let report = try await Sandbox.access(url: archiveUrl) {
-                    try await engine.test(archiveUrl, passwordResolver: passwordResolver, onProgress: onProgress)
-                }
-                try Task.checkCancellation()
-                result = ArchiveTestResult(
-                    archiveName: archiveName,
-                    damagedPaths: report.damagedPaths,
-                    problem: report.problem)
-                progressCenter.finish(jobId, .done)
+                let result = try await loader.test(url: url, onProgress: progress)
+                // a notice, so that it is in the logs a user exports
+                log.notice("Archive tested", context: [
+                    "file": url.lastPathComponent,
+                    "damagedEntries": "\(result.damagedEntries.count)",
+                    "uncheckedEntries": "\(result.uncheckedEntries.count)",
+                    "archiveDamage": result.archiveDamage?.rawValue ?? "none"
+                ])
+                progressCenter.finish(jobId, testedAs: result)
             } catch is CancellationError {
-                result = nil
                 progressCenter.finish(jobId, .cancelled)
             } catch ArchiveError.passwordCancelled {
-                result = nil
-                progressCenter.finish(jobId, .cancelled)
+                progressCenter.finish(jobId, passwordCancelledOutcome())
             } catch {
-                // could not run at all: said as what was found, since that is
-                // what the user asked about
-                extractLog.error(error)
-                result = ArchiveTestResult(
-                    archiveName: archiveName,
-                    damagedPaths: [],
-                    problem: error.localizedDescription)
-                progressCenter.finish(jobId, .done)
+                log.error("Archive test failed", context: ["file": url.lastPathComponent, "error": error.localizedDescription])
+                progressCenter.finish(jobId, .failed(error.localizedDescription))
             }
-            self.testResult = result
-            self.isBusy = false
-            wholeExtractionJob = nil
-            updateStatus(.done)
-            return result
         }
         progressCenter.setOnCancel(jobId) {
             cancelFlag.cancel()

@@ -320,6 +320,12 @@ struct ArchiveContentToolbarView: ToolbarContent {
                 }
                 
                 Button {
+                    openURL(Constants.discordURL)
+                } label: {
+                    Text(verbatim: "Discord")
+                }
+                
+                Button {
                     appState.selectedSettingsTab = .about
                     openSettings()
                 } label: {

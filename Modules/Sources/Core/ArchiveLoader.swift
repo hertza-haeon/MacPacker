@@ -50,7 +50,9 @@ final actor ArchiveLoader {
 
     private var entries: [UUID: ArchiveItem] = [:]
     private var engine: (any ArchiveEngine)?
-    
+    /// Where a compound is decompressed to, from the moment it is made.
+    private var compoundTempUrl: URL?
+
     // status passthrough from the engine to the UI
     private var statusContinuation: AsyncStream<EngineStatus>.Continuation?
     private lazy var status: AsyncStream<EngineStatus> = {
@@ -82,6 +84,10 @@ final actor ArchiveLoader {
             throw ArchiveError.invalidArchive("The engine selected for \(type.name) can't read split archives. Switch to 7-Zip in Settings.")
         }
         let firstVolume = try await firstVolume(of: url, split: split)
+        log.notice("Split read from its first volume", context: [
+            "file": url.lastPathComponent,
+            "firstVolume": firstVolume.lastPathComponent
+        ])
         yield(.processing(progress: nil, activity: .splitFirstVolume(firstVolume.lastPathComponent)))
         return firstVolume
     }
@@ -126,11 +132,22 @@ final actor ArchiveLoader {
     /// archive type, select the proper engine and then load all info like type info, entries,  ... . The hiarchy is built in a separate step.
     /// - Parameter url: The url to open
     public func loadEntries(url: URL) async throws -> ArchiveLoaderLoadResult {
+        do {
+            return try await load(url: url)
+        } catch {
+            // The state learns of the tar's folder from a finished load only,
+            // so one that failed or was stopped would leave it behind.
+            if let compoundTempUrl { await CacheCleaner().remove([compoundTempUrl]) }
+            throw error
+        }
+    }
+
+    private func load(url: URL) async throws -> ArchiveLoaderLoadResult {
         // in case this is a compount `archiveUrl` will hold the extracted url
         var archiveUrl: URL? = url
         // for a split, the resolved first volume (adopted as the window identity)
         var firstVolumeURL: URL? = nil
-        var compoundTempUrl: URL? = nil
+        compoundTempUrl = nil
 
         let detectorResult = try detect(url)
 
@@ -192,6 +209,10 @@ final actor ArchiveLoader {
                 )
             }
             archiveUrl = extractedArchiveURL
+            log.notice("Compound unpacked", context: [
+                "file": url.lastPathComponent,
+                "inner": extractedArchiveURL.lastPathComponent
+            ])
             yield(.processing(progress: nil, activity: .entryExtracted(extractedArchiveURL)))
         } else if let split = detectorResult.split {
             let firstVolume = try await firstVolume(of: url, split: split, readBy: detectorResult.type)
@@ -216,7 +237,7 @@ final actor ArchiveLoader {
         self.engine = engine
         // Which engine actually ran is the single most useful fact when an open
         // fails — the same archive behaves differently on 7-Zip and XAD.
-        log.info("Engine selected", context: [
+        log.notice("Engine selected", context: [
             "file": url.lastPathComponent,
             "type": detectorResult.type.id,
             "engine": archiveEngineSelector.engineType(for: detectorResult.type.id)?.configId ?? "unknown"
@@ -231,11 +252,19 @@ final actor ArchiveLoader {
         defer { forwardTask.cancel() }
         
         // set the entries
+        let listingStart = Date()
         let (engineLoadResult, usedEngine) = try await loadArchiveWithFallback(
             url: archiveUrl,
             type: detectorResult.type,
             selected: engine
         )
+        log.notice("Entries listed", context: [
+            "file": url.lastPathComponent,
+            "engine": usedEngine?.configId ?? "unknown",
+            "entries": "\(engineLoadResult.items.count)",
+            "encrypted": "\(engineLoadResult.isEncrypted)",
+            "seconds": String(format: "%.3f", Date().timeIntervalSince(listingStart))
+        ])
         self.entries = engineLoadResult.items
         yield(.processing(progress: nil, activity: .entriesFound(self.entries.count)))
         if let nameEncoding = engineLoadResult.nameEncoding {
@@ -321,7 +350,7 @@ final actor ArchiveLoader {
             throw ArchiveError.invalidArchive(
                 "\(url.lastPathComponent) is not a recognised archive type.")
         }
-        log.info("Archive type detected", context: [
+        log.notice("Archive type detected", context: [
             "file": url.lastPathComponent,
             "type": detectorResult.type.id,
             "composition": detectorResult.composition?.id ?? "none",

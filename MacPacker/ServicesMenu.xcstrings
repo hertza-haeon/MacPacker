@@ -17,6 +17,12 @@
             "value" : "Comprimeix amb el MacPacker"
           }
         },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Komprimovat v aplikaci MacPacker"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
@@ -153,6 +159,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Comprimeix amb el MacPacker Lab"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Komprimovat v aplikaci MacPacker Lab"
           }
         },
         "de" : {
@@ -293,6 +305,12 @@
             "value" : "Crea un arxiu amb el MacPacker"
           }
         },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vytvořit archiv v aplikaci MacPacker"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
@@ -429,6 +447,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Crea un arxiu amb el MacPacker Lab"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vytvořit archiv v aplikaci MacPacker Lab"
           }
         },
         "de" : {
@@ -569,6 +593,12 @@
             "value" : "Extreu amb el MacPacker"
           }
         },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozbalit v aplikaci MacPacker"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
@@ -705,6 +735,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Extreu amb el MacPacker Lab"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozbalit v aplikaci MacPacker Lab"
           }
         },
         "de" : {

@@ -46,7 +46,7 @@ extension AllCoreTests {
             let catalog = try Self.catalog()
             let languages = Set(catalog.strings.values.flatMap { $0.localizations?.keys ?? [:].keys })
             // 21 until Hindi came with main on 26 Oct 2026 (#375)
-            #expect(languages.count == 22)
+            #expect(languages.count == 23)
 
             let lab = catalog.strings.filter { key, _ in Self.labPrefixes.contains { key.hasPrefix($0) } }
             #expect(lab.count > 100)
